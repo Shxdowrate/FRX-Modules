@@ -11,6 +11,10 @@ Games — 14 настольных и карточных игр на двоих �
 
 Все игры — на двоих живых игроков (ботов звать нельзя). Ход делает только тот, чья очередь; кнопки чужой
 игры не сработают. «Сдаться» завершает партию, «Реванш» начинает заново теми же соперниками.
+
+Скрытое (карты в дураке и блэкджеке, свой флот в морском бое) показывается каждому игроку лично — в личке со
+стационарным ботом: кнопка «🃏 Мои карты» под партией открывает бота, он присылает ваш личный экран с кнопками.
+В дураке ходы делаются там же (карты соперника не видны никому).
 """
 
 import asyncio
@@ -19,18 +23,20 @@ import random
 import secrets
 import time
 
+import bot
 import decorators
 import engine
 import visual
 
 NAME = "Games"
 MODULE_NAME = "games"
-VERSION = "1.0"
+VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "14 игр на двоих на инлайн-кнопках: крестики-нолики, 4 в ряд, морской бой, шашки, шахматы, реверси, сапёр, КНБ, виселица, быки и коровы, блэкджек, ним, точки-квадраты, дурак"
 
 MATCHES = {}          # mid -> Match
 GAMES = {}            # key -> Game class (заполняется регистрацией в конце файла)
+_BOT = {}             # кэш: username стационарного бота
 
 
 def _esc(x):
@@ -52,6 +58,17 @@ async def setup():
                                valid={'min_value': 1, 'max_value': 240})
     await engine.create_config('open_wait', 'Сколько минут ждать соперника в открытой игре', 'int', 10,
                                valid={'min_value': 1, 'max_value': 120})
+
+
+async def _bot_username():
+    """@username стационарного бота — для ссылки «Мои карты» (t.me/<бот>?start=…)."""
+    if not _BOT.get('username'):
+        try:
+            me = await engine.bot.raw.get_me()
+            _BOT['username'] = me.username
+        except Exception:
+            pass
+    return _BOT.get('username')
 
 
 @decorators.on_unload()
@@ -105,6 +122,20 @@ class Game:
     def cb(self, tok):
         return f"g:{self.m.mid}:{tok}"
 
+    def pcb(self, tok):
+        """callback_data кнопки ЛИЧНОГО экрана (в личке с ботом)."""
+        return f"gp:{self.m.mid}:{tok}"
+
+    # --- личный экран игрока (в личке с ботом); PRIVATE = True — у игры есть скрытое от соперника ---
+    PRIVATE = False
+    PRIVATE_LABEL = "🃏 Мои карты"
+
+    def private_text(self, i):
+        return ''
+
+    def private_buttons(self, i):
+        return []
+
     # --- переопределяется играми ---
     def setup(self):
         pass
@@ -148,6 +179,8 @@ class Match:
         self.form = None
         self._timer = None
         self.created = time.time()
+        self._shown = None                                # (текст, кнопки) последней отрисовки формы
+        self.dm = {}                                      # id игрока -> {'msg': сообщение бота, 'shown': (текст, кнопки)}
 
     # ---- запуск самой игры ----
     def start_game(self):
@@ -197,6 +230,8 @@ class Match:
 
     def play_buttons(self):
         rows = list(self.game.board_buttons())
+        if self.game.PRIVATE and not self.game.finished and _BOT.get('username'):
+            rows.append([(self.game.PRIVATE_LABEL, f"url:https://t.me/{_BOT['username']}?start=gm{self.mid}")])
         if self.game.finished:
             rows.append([("🔁 Реванш", f"g:{self.mid}:rematch", "success"), (visual.btn('Закрыть', 'close'), f"g:{self.mid}:close")])
         else:
@@ -210,8 +245,54 @@ class Match:
         return self.play_buttons() if self.phase in ('play', 'over') else self.lobby_buttons()
 
     async def render(self):
+        """Перерисовать форму партии (только если что-то поменялось) и личные экраны игроков."""
         if self.form is not None:
-            await self.form.edit(self.text(), buttons=self.buttons())
+            text, buttons = self.text(), self.buttons()
+            shown = (text, repr(buttons))
+            if shown != self._shown:
+                await self.form.edit(text, buttons=buttons)
+                self._shown = shown
+        if self.game is not None and self.game.PRIVATE:
+            for pid in list(self.dm):
+                await self.render_private(pid)
+
+    def private_view(self, pid):
+        g = self.game
+        i = g.idx(pid)
+        G = GAMES[self.game_key]
+        head = visual.title(G.NAME, sub="ваш личный экран")
+        if self.phase not in ('play', 'over') or i < 0:
+            return head + "\n" + visual.hint("партия ещё не началась"), []
+        if g.finished:
+            text = "\n".join([head, g.turn_line(), "", g.private_text(i)])
+            return text, []
+        text = "\n".join([head, f"соперник: {_mention(g.pid(g.opp(i)), g.pname(g.opp(i)))}", "", g.private_text(i)])
+        return text, list(g.private_buttons(i))
+
+    async def render_private(self, pid, fresh=False):
+        """Личный экран игрока в личке с ботом: новый (fresh) или правка уже отправленного."""
+        text, buttons = self.private_view(pid)
+        entry = self.dm.get(pid)
+        if entry is not None and not fresh:
+            shown = (text, repr(buttons))
+            if shown == entry.get('shown'):
+                return
+            try:
+                await engine.bot.edit(entry['msg'], text, buttons=buttons or None)
+                entry['shown'] = shown
+                return
+            except Exception as e:
+                if 'not modified' in str(e).lower():
+                    entry['shown'] = shown
+                    return
+                fresh = True                                   # сообщение удалили / слишком старое — пришлём заново
+        if fresh and entry is not None:
+            try:
+                await engine.bot.raw.delete_message(entry['msg'].chat.id, entry['msg'].message_id)
+            except Exception:
+                pass
+        msg = await engine.bot.send_message(pid, text, buttons=buttons or None)
+        self.dm[pid] = {'msg': msg, 'shown': (text, repr(buttons))}
 
     async def arm_timeout(self):
         if self._timer is not None and not self._timer.done():
@@ -224,7 +305,7 @@ class Match:
             await asyncio.sleep(delay)
         except asyncio.CancelledError:
             return
-        MATCHES.pop(self.mid, None)
+        self.close()
         if self.form is not None:
             try:
                 note = visual.hint("партия закрыта по тайм-ауту" if self.phase != 'invite' else "вызов истёк")
@@ -236,6 +317,16 @@ class Match:
         if self._timer is not None and not self._timer.done():
             self._timer.cancel()
         MATCHES.pop(self.mid, None)
+        for entry in list(self.dm.values()):                # личные экраны — без кнопок
+            asyncio.ensure_future(_quiet(engine.bot.edit(entry['msg'], visual.hint("партия закрыта"), buttons=None)))
+        self.dm.clear()
+
+
+async def _quiet(coro):
+    try:
+        await coro
+    except Exception:
+        pass
 
 
 # =========================================================================== клики
@@ -318,22 +409,10 @@ async def _on_click(click, mid, tok):
     if i < 0:
         await click.answer("Вы не в этой партии", show_alert=True)
         return
-    try:
-        res = await m.game.handle(uid, tok)
-    except Exception as e:
-        engine.tlog(f"[Games/{m.game_key}] {type(e).__name__}: {e}")
-        await click.answer(f"ошибка: {str(e)[:150]}", show_alert=True)
-        return
-    if res is not None:
-        text, alert = res if isinstance(res, tuple) else (res, False)
-        if text:
-            await click.answer(text, show_alert=alert)
-    else:
+    if tok == 'x':                                   # «пустая» клетка / неактивная кнопка — ничего не меняется
         await click.answer()
-    if m.phase == 'play' and m.game.finished:
-        m.phase = 'over'
-    await m.arm_timeout()
-    await m.render()
+        return
+    await _apply_move(m, uid, tok, click)
 
 
 # =========================================================================== команды
@@ -393,7 +472,8 @@ async def _launch(chat_id, key, challenger, opponent):
     if opponent:
         allowed = ['me', challenger['id'], opponent['id']]
     else:
-        allowed = [chat_id] if chat_id < 0 else ['me', challenger['id']]   # в группе — все, в личке — вы
+        allowed = 'all'            # открытая игра: «Войти» может любой, кто видит сообщение (и в группе, и в личке)
+    await _bot_username()
     m.form = await engine.create_inlineform(chat_id, m.lobby_text(), buttons=m.lobby_buttons(), for_user=allowed)
     _bind(m.form, m)
     await m.arm_timeout()
@@ -499,6 +579,71 @@ async def _on_input(inp, mid):
     except Exception as e:
         engine.tlog(f"[Games/{m.game_key}] input: {type(e).__name__}: {e}")
         res = None
+    if m.phase == 'play' and m.game.finished:
+        m.phase = 'over'
+    await m.arm_timeout()
+    await m.render()
+
+
+# =========================================================================== личные экраны (личка с ботом)
+
+@bot.start_link('gm')
+async def _private_start(event, payload):
+    """«🃏 Мои карты» под партией → t.me/<бот>?start=gm<id партии> → бот присылает игроку его личный экран."""
+    m = MATCHES.get(payload)
+    if m is None or m.game is None:
+        await event.reply(visual.warn("Эта партия уже закрыта"))
+        return
+    uid = event.sender_id
+    if m.game.idx(uid) < 0:
+        await event.reply(visual.warn("Вы не играете в этой партии — смотреть чужие карты нельзя"))
+        return
+    if not m.game.PRIVATE:
+        await event.reply(visual.hint("В этой игре всё видно на общем поле"))
+        return
+    await m.render_private(uid, fresh=True)
+
+
+@bot.callback(data_startswith='gp:')
+async def _private_click(click):
+    """Кнопки личного экрана: gp:<id партии>:<ход>."""
+    try:
+        _, mid, tok = click.data.split(':', 2)
+    except ValueError:
+        return
+    m = MATCHES.get(mid)
+    if m is None or m.game is None:
+        await click.answer("Эта партия уже закрыта", show_alert=True)
+        return
+    uid = click.user_id
+    if m.game.idx(uid) < 0:
+        await click.answer("Вы не в этой партии", show_alert=True)
+        return
+    if m.game.finished:
+        await click.answer("Партия окончена")
+        await m.render()
+        return
+    if tok == 'refresh':
+        await click.answer()
+        await m.render_private(uid, fresh=True)
+        return
+    await _apply_move(m, uid, tok, click)
+
+
+async def _apply_move(m, uid, tok, click):
+    """Ход игрока (из формы в чате или с личного экрана): handle → ответ на нажатие → перерисовка."""
+    try:
+        res = await m.game.handle(uid, tok)
+    except Exception as e:
+        engine.tlog(f"[Games/{m.game_key}] {type(e).__name__}: {e}")
+        await click.answer(f"ошибка: {str(e)[:150]}", show_alert=True)
+        return
+    if res is not None:
+        text, alert = res if isinstance(res, tuple) else (res, False)
+        if text:
+            await click.answer(text, show_alert=alert)
+    else:
+        await click.answer()
     if m.phase == 'play' and m.game.finished:
         m.phase = 'over'
     await m.arm_timeout()
@@ -855,7 +1000,9 @@ class Blackjack(Game):
     NAME = 'Блэкджек'
     EMOJI = '🃏'
     ALIASES = ('blackjack', '21', 'очко')
-    HELP = 'Набирайте очки ближе к 21, но не больше. «Взять» — ещё карта, «Хватит» — остановиться. Перебор (>21) — проигрыш.'
+    HELP = ('Набирайте очки ближе к 21, но не больше. «Взять» — ещё карта, «Хватит» — остановиться. Перебор (>21) — '
+            'проигрыш. Свои карты видите только вы: «🃏 Мои карты» (личка с ботом); на общем поле — только их число.')
+    PRIVATE = True
     SUITS = '♠♥♦♣'
     RANKS = [('A', 11), ('2', 2), ('3', 3), ('4', 4), ('5', 5), ('6', 6), ('7', 7), ('8', 8), ('9', 9),
              ('10', 10), ('J', 10), ('Q', 10), ('K', 10)]
@@ -883,13 +1030,34 @@ class Blackjack(Game):
     def body(self):
         lines = []
         for i in (0, 1):
-            reveal = self.finished or self.stood[i]
-            s = self._score(self.hands[i])
-            shown = self._hand_str(self.hands[i]) if (reveal or i == self.turn) else self._hand_str(self.hands[i], hide=True)
-            score = f" = <b>{s}</b>" + (" 💥" if s > 21 else '') if (reveal or i == self.turn) else ''
-            tag = " ✋" if self.stood[i] else ''
-            lines.append(f"{self.mark(i)} {_esc(self.pname(i))}: {shown}{score}{tag}")
+            tag = " ✋ хватит" if self.stood[i] else ''
+            if self.finished:
+                s = self._score(self.hands[i])
+                lines.append(f"{self.mark(i)} {_esc(self.pname(i))}: {self._hand_str(self.hands[i])} = <b>{s}</b>"
+                             + (" 💥" if s > 21 else ''))
+            else:                       # чужие карты не видны: только сколько их
+                lines.append(f"{self.mark(i)} {_esc(self.pname(i))}: " + "🂠" * len(self.hands[i]) + tag)
+        if not self.finished:
+            lines.append(visual.hint("свои карты и очки — «🃏 Мои карты» (в личке с ботом)"))
         return "\n".join(lines)
+
+    def private_text(self, i):
+        s = self._score(self.hands[i])
+        lines = [f"🃏 ваши карты: <b>{self._hand_str(self.hands[i])}</b> = <b>{s}</b>" + (" 💥" if s > 21 else ''),
+                 f"у соперника карт: {len(self.hands[self.opp(i)])}" + (" (остановился)" if self.stood[self.opp(i)] else '')]
+        if not self.finished:
+            if self.stood[i]:
+                lines.append(visual.hint("вы остановились — ждём соперника"))
+            elif i == self.turn:
+                lines.append(visual.hint("ваш ход: «Взять» или «Хватит»"))
+            else:
+                lines.append(visual.hint("ждём хода соперника"))
+        return "\n".join(lines)
+
+    def private_buttons(self, i):
+        if self.finished or self.stood[i] or i != self.turn:
+            return [] if self.finished else [[("🔄 Обновить", self.pcb("refresh"))]]
+        return [[("🃏 Взять", self.pcb("hit"), "success"), ("✋ Хватит", self.pcb("stand"))]]
 
     def board_buttons(self):
         if self.finished:
@@ -1289,7 +1457,10 @@ class Battleship(Game):
     NAME = 'Морской бой'
     EMOJI = '🚢'
     ALIASES = ('battleship', 'морскойбой', 'корабли')
-    HELP = 'Корабли расставляются автоматически. По очереди стреляете по полю соперника. Попадание — ход снова, мимо — ход переходит. Потопите все корабли.'
+    HELP = ('Корабли расставляются автоматически. По очереди стреляете по полю соперника. Попадание — ход снова, мимо — '
+            'ход переходит. Потопите все корабли. Свой флот и куда попал соперник — «🚢 Мой флот» (личка с ботом).')
+    PRIVATE = True
+    PRIVATE_LABEL = "🚢 Мой флот"
     N = 6
     FLEET = [3, 2, 2, 1, 1]
 
@@ -1380,6 +1551,39 @@ class Battleship(Game):
                     row.append(("🌊", self.cb(f"f{r}{c}")))
             rows.append(row)
         return rows
+
+    def private_text(self, i):
+        """Свой флот: где корабли, куда попал и куда промахнулся соперник."""
+        o = self.opp(i)
+        own = set().union(*self.ships[i]) if self.ships[i] else set()
+        sunk = set()
+        for ship in self.ships[i]:
+            if ship <= self.hits[o]:
+                sunk |= ship
+        rows = []
+        for r in range(self.N):
+            line = ""
+            for c in range(self.N):
+                cell = (r, c)
+                if cell in sunk:
+                    line += "❌"
+                elif cell in own and cell in self.hits[o]:
+                    line += "💥"
+                elif cell in own:
+                    line += "🚢"
+                elif cell in self.shots[o]:
+                    line += "🔵"
+                else:
+                    line += "🌊"
+            rows.append(line)
+        left = len(own) - len(own & self.hits[o])
+        status = ("ваш выстрел" if self.turn == i else "стреляет соперник") if not self.finished else ""
+        return "\n".join(["<b>Ваш флот</b>  " + visual.hint(f"целых клеток: {left}"), *rows,
+                          visual.hint("🚢 корабль · 💥 подбит · ❌ потоплен · 🔵 промах соперника"),
+                          visual.hint(status) if status else ""]).rstrip()
+
+    def private_buttons(self, i):
+        return [] if self.finished else [[("🔄 Обновить", self.pcb("refresh"))]]
 
     async def handle(self, pid, tok):
         i = self.idx(pid)
@@ -1818,7 +2022,10 @@ class Durak(Game):
     NAME = 'Дурак'
     EMOJI = '🃏'
     ALIASES = ('durak', 'дурак')
-    HELP = 'Подкидной дурак 1 на 1. Атакующий кладёт карту, защищающийся бьёт старшей той же масти или козырем. Не может — берёт. Кто останется с картами, когда колода кончилась, — дурак.'
+    HELP = ('Подкидной дурак 1 на 1. Атакующий кладёт карту, защищающийся бьёт старшей той же масти или козырем. '
+            'Не может — берёт. Кто останется с картами, когда колода кончилась, — дурак. '
+            'Свои карты каждый видит и разыгрывает в личке с ботом (кнопка «🃏 Мои карты»).')
+    PRIVATE = True
     RANKS = ['6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
     SUITS = {'♠': 's', '♥': 'h', '♦': 'd', '♣': 'c'}
     SUIT_CH = ['♠', '♥', '♦', '♣']
@@ -1902,7 +2109,66 @@ class Durak(Game):
         lines.append(visual.hint(f"карт: {self.pname(0)} — {len(self.hands[0])} · {self.pname(1)} — {len(self.hands[1])}"))
         if self.msg:
             lines.append(self.msg)
+        if not self.finished:
+            actor = self.attacker if self.phase == 'attack' else self.defender
+            what = "ходит / подкидывает" if self.phase == 'attack' else "отбивается"
+            lines.append(f"сейчас {what}: {self.mark(actor)} {_mention(self.pid(actor), self.pname(actor))}")
+            lines.append(visual.hint("карты и ходы — у каждого в личке с ботом: «🃏 Мои карты»"))
+        else:
+            lines.append(visual.hint("на руках: " + " · ".join(
+                f"{_esc(self.pname(i))}: " + (" ".join(self._card(c) for c in self.hands[i]) or "—") for i in (0, 1))))
         return "\n".join(lines)
+
+    def turn_line(self):
+        if self.finished:
+            return super().turn_line()
+        actor = self.attacker if self.phase == 'attack' else self.defender
+        return f"ход: {self.mark(actor)} {_mention(self.pid(actor), self.pname(actor))}"
+
+    # ---- личный экран: только свои карты ----
+    def private_text(self, i):
+        hand = " ".join(self._card(c) for c in self.hands[i]) or "—"
+        lines = [visual.field("козырь", self._card(self.trump_card), code=False) + f"  ·  в колоде {len(self.deck)}",
+                 f"🃏 ваши карты: <b>{hand}</b>",
+                 f"у соперника карт: {len(self.hands[self.opp(i)])}"]
+        if self.table:
+            lines.append("стол: " + "  ".join(self._card(p['atk']) + ("／" + self._card(p['dfn']) if p['dfn'] else "／▢")
+                                              for p in self.table))
+        if self.msg:
+            lines.append(self.msg)
+        if self.finished:
+            return "\n".join(lines)
+        actor = self.attacker if self.phase == 'attack' else self.defender
+        if actor != i:
+            lines.append(visual.hint("ждём хода соперника"))
+        elif self.phase == 'attack':
+            lines.append(visual.hint("ваш ход: выберите карту" + (" или «Бито»" if self.table and not self._unbeaten() else "")))
+        else:
+            lines.append(visual.hint("отбивайтесь: выберите карту или «Беру»"))
+        return "\n".join(lines)
+
+    def private_buttons(self, i):
+        if self.finished:
+            return []
+        actor = self.attacker if self.phase == 'attack' else self.defender
+        if actor != i:
+            return [[("🔄 Обновить", self.pcb("refresh"))]]
+        rows = []
+        if self.phase == 'attack':
+            legal = set(self._legal_attack_cards(i))
+            cards = [(self._card(c), self.pcb(f"a{k}")) for k, c in enumerate(self.hands[i]) if k in legal]
+            rows += [cards[j:j + 4] for j in range(0, len(cards), 4)]
+            if self.table and not self._unbeaten():
+                rows.append([("✅ Бито", self.pcb("bito"), "success")])
+            elif not cards:
+                rows.append([("— нечем ходить —", self.pcb("x"))])
+        else:
+            target = next((p for p in self.table if p['dfn'] is None), None)
+            cards = [(self._card(c), self.pcb(f"d{k}")) for k, c in enumerate(self.hands[i])
+                     if target is not None and self._beats(target['atk'], c)]
+            rows += [cards[j:j + 4] for j in range(0, len(cards), 4)]
+            rows.append([("🤲 Беру", self.pcb("take"), "danger")])
+        return rows
 
     def _legal_attack_cards(self, i):
         hand = self.hands[i]
@@ -1918,35 +2184,7 @@ class Durak(Game):
         return [k for k, c in enumerate(hand) if c[0] in ranks]
 
     def board_buttons(self):
-        if self.finished:
-            return []
-        rows = []
-        actor = self.attacker if self.phase == 'attack' else self.defender
-        hand = self.hands[actor]
-        if self.phase == 'attack':
-            legal = set(self._legal_attack_cards(actor))
-            cardrow = []
-            for k, c in enumerate(hand):
-                if k in legal:
-                    cardrow.append((self._card(c), self.cb(f"a{k}")))
-            for j in range(0, len(cardrow), 4):
-                rows.append(cardrow[j:j + 4])
-            ctl = []
-            if self.table and not self._unbeaten():
-                ctl.append(("✅ Бито", self.cb("bito"), "success"))
-            if not cardrow and not (self.table and not self._unbeaten()):
-                ctl.append(("— нечем ходить —", self.cb("x")))
-            if ctl:
-                rows.append(ctl)
-        else:
-            cardrow = [(self._card(c), self.cb(f"d{k}")) for k, c in enumerate(hand)]
-            for j in range(0, len(cardrow), 4):
-                rows.append(cardrow[j:j + 4])
-            rows.append([("🤲 Беру", self.cb("take"), "danger")])
-        hint_actor = self.attacker if self.phase == 'attack' else self.defender
-        if hint_actor != actor:
-            pass
-        return rows
+        return []                       # карты на общем поле не показываем — только в личке у каждого
 
     def _draw_up(self):
         order = [self.attacker, self.defender]
