@@ -35,6 +35,8 @@ MODULE_NAME = "uploader"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Файл ответом → на файлообменник, в ответ прямая ссылка (catbox, 0x0, uguu, litterbox, tmpfiles)"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/uploader.py"
 
 UA = {'User-Agent': 'Mozilla/5.0 (FRX Uploader)'}
 

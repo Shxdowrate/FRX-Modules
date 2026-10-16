@@ -20,6 +20,8 @@ MODULE_NAME = "afk"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Автоответ «меня нет»: .afk причина — в личке и на упоминания; сводка пропущенного по возвращении"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/afk.py"
 
 _answered = {}       # chat_id -> время последнего автоответа
 _incoming = {}       # chat_id -> время последнего входящего: исходящее сразу после него — скорее автоответ модуля, а не вы

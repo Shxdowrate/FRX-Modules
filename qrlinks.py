@@ -23,6 +23,8 @@ MODULE_NAME = "qrlinks"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "QR-коды (создать и прочитать) и ссылки (сократить и раскрыть): .qr, .short, .unshort"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/qrlinks.py"
 
 URL_RE = re.compile(r'https?://\S+')
 UA = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36'}

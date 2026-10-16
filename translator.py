@@ -22,6 +22,8 @@ MODULE_NAME = "translator"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Переводчик Google без ключей: .tr язык — ответом или текстом; .trs — заменить своё сообщение переводом"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/translator.py"
 
 NAMES = {'английский': 'en', 'англ': 'en', 'русский': 'ru', 'рус': 'ru', 'немецкий': 'de', 'французский': 'fr',
          'испанский': 'es', 'итальянский': 'it', 'португальский': 'pt', 'украинский': 'uk', 'белорусский': 'be',

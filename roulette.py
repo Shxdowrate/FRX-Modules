@@ -27,6 +27,8 @@ MODULE_NAME = "roulette"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Розыгрыши в чате: кубик, дартс, слоты, баскет, футбол, боулинг или проверяемый рандом"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/roulette.py"
 
 MODES = {
     'dice': ('🎲', 'кубик', ('кубик', 'кубики', 'dice', 'кости', 'куб')),

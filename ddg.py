@@ -31,6 +31,8 @@ MODULE_NAME = "ddg"
 VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Поиск DuckDuckGo: .ddg запрос и @бот ddg запрос — сайты с превью и скриншотом страницы"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/ddg.py"
 REQUIREMENTS = ["ddgs"]   # ставятся сами (core/requirements.py)
 
 UA = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',

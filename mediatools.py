@@ -29,6 +29,8 @@ MODULE_NAME = "mediatools"
 VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Конвертер медиа ответом: кружок, голосовое, mp3, GIF, сжатие, обрезка, скорость, реверс, стикер, картинка"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/mediatools.py"
 
 
 @decorators.on_start()

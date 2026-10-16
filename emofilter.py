@@ -27,6 +27,8 @@ MODULE_NAME = "emofilter"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Автоматически ставит выбранную реакцию на сообщения с ключевым словом; свой ключ для каждого чата или глобально"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/emofilter.py"
 
 MODES = [('in', 'содержит ключ'), ('exact', 'точно ключ'), ('start', 'начинается с ключа'), ('word', 'ключ отдельным словом')]
 WHO = [('all', 'все'), ('others', 'все, кроме меня'), ('me', 'только я')]

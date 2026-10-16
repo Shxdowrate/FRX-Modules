@@ -32,6 +32,8 @@ MODULE_NAME = "codestyles"
 VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Картинка из кода: VS Code, WebIDE, macOS, Carbon, терминал, GitHub, ретро и др. — .code ответом на код"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/codestyles.py"
 REQUIREMENTS = ["pygments"]   # ставятся сами (core/requirements.py)
 
 STYLES = {

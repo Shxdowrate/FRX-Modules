@@ -33,6 +33,8 @@ MODULE_NAME = "games"
 VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "14 игр на двоих на инлайн-кнопках: крестики-нолики, 4 в ряд, морской бой, шашки, шахматы, реверси, сапёр, КНБ, виселица, быки и коровы, блэкджек, ним, точки-квадраты, дурак"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/games.py"
 
 MATCHES = {}          # mid -> Match
 GAMES = {}            # key -> Game class (заполняется регистрацией в конце файла)

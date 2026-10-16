@@ -31,6 +31,8 @@ MODULE_NAME = "v2t"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Голосовые и кружки в текст: Telegram → Whisper из NeuroDash → бесплатный Google; .v2t ответом, автоматически в личке"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/v2t.py"
 
 GOOGLE_KEY = 'AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw'          # открытый ключ Chromium для Web Speech
 

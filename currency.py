@@ -26,6 +26,8 @@ MODULE_NAME = "currency"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Курсы и конвертер валют и крипты: .cur 100 usd rub, .cur btc, @бот cur …"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/currency.py"
 
 ALIASES = {
     'доллар': 'USD', 'доллара': 'USD', 'долларов': 'USD', 'доллары': 'USD', 'бакс': 'USD', 'баксов': 'USD', '$': 'USD',

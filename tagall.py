@@ -26,6 +26,8 @@ MODULE_NAME = "tagall"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Упомянуть всех: пачками по 5, без ботов и неактивных, с прогрессом и .tagstop; .tagadmins, .tagonline"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/tagall.py"
 
 _running = {}       # chat_id -> asyncio.Event (стоп)
 HIDDEN = 'ㅤ'       # «пустой» символ: упоминание без видимого имени

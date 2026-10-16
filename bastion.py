@@ -65,6 +65,8 @@ MODULE_NAME = "bastion"
 VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Модерация групп: бан/мут/кик, варны, фильтры и стоп-слова, капча, антифлуд, антирейд, ночь, приветствия, журнал"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/bastion.py"
 
 # --------------------------------------------------------------------------- справочники
 

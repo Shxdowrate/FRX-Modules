@@ -25,6 +25,8 @@ MODULE_NAME = "birthdays"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Дни рождения из Telegram и свои: список, напоминания от бота заранее, автопоздравление"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/birthdays.py"
 
 MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря']
 

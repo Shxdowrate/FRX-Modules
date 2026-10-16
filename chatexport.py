@@ -32,6 +32,8 @@ MODULE_NAME = "chatexport"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Выгрузка чата в Избранное: HTML + JSON + файлы, большой чат — частями"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/chatexport.py"
 
 RUN = {'job': None}
 

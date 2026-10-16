@@ -29,6 +29,8 @@ MODULE_NAME = "stickers"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Свои стикерпаки и эмодзи-паки: .kang и .kemoji ответом на что угодно, всё конвертируется само"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/stickers.py"
 
 KINDS = {'regular': 'стикеры', 'custom_emoji': 'эмодзи'}
 

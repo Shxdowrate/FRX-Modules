@@ -20,6 +20,8 @@ MODULE_NAME = "purge"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Чистка: .purge ответом — ваши сообщения до этого места; all — все (с правами); .del — одно"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/purge.py"
 
 
 async def _purge(event, silent):

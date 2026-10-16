@@ -29,6 +29,8 @@ MODULE_NAME = "quotes"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Цитаты из сообщений картинкой или стикером: .q ответом, .qs — сразу в ваш стикерпак"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/quotes.py"
 
 S = 2                     # рисуем в 2× — потом сжимаем до 512 (стикер) — так текст чёткий
 MAX_W = 512 * S

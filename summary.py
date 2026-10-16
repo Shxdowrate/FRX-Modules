@@ -29,6 +29,8 @@ MODULE_NAME = "summary"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Пересказ переписки нейросетью: непрочитанное, N сообщений или период; режет по токенам и сводит"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/summary.py"
 
 # окно контекста по названию модели (токены); первое совпадение
 CTX = [

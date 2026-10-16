@@ -27,6 +27,8 @@ MODULE_NAME = "pollplot"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Результаты опроса графиком (столбцы или пончик), живое обновление, кто за что голосовал"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/pollplot.py"
 
 PALETTE = [(255, 122, 69), (90, 160, 255), (120, 210, 120), (240, 190, 70), (190, 120, 240), (70, 200, 200),
            (240, 100, 150), (160, 170, 185), (255, 160, 110), (130, 190, 255)]

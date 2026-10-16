@@ -29,6 +29,8 @@ MODULE_NAME = "youtube"
 VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Поиск на YouTube и скачивание видео/аудио по ссылке с сотен сайтов (yt-dlp)"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/youtube.py"
 REQUIREMENTS = [("yt-dlp[default,deno]", "yt_dlp, deno")]   # ставятся сами (core/requirements.py)
 
 URL_RE = re.compile(r'https?://\S+')

@@ -28,6 +28,8 @@ MODULE_NAME = "pmguard"
 VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Защита лички: незнакомцу — карточка с кнопками причины, после N сообщений — блок; вам — карточка с решением"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/pmguard.py"
 
 REASONS = {'work': '💼 по делу', 'chat': '💬 пообщаться', 'urgent': '🆘 срочно', 'ad': '📢 реклама'}
 _warned = {}        # user_id -> форма/сообщение с предупреждением (прошлое удаляем, чтобы не копились)

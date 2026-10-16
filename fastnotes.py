@@ -34,6 +34,8 @@ MODULE_NAME = "fastnotes"
 VERSION = "1.0"
 AUTHOR = "FRX · идея @mescr_m"
 DESCRIPTION = "Быстрые заметки по #имени: раскрываются в ваших сообщениях и отвечают разрешённым людям; менеджер .notes"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/fastnotes.py"
 
 NAME_RE = re.compile(r'^[\w\-]{1,40}$')
 TAG_RE = re.compile(r'(?<![\w#])#([\w\-]{1,40})')

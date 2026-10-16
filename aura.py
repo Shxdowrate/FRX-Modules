@@ -45,6 +45,8 @@ MODULE_NAME = "aura"
 VERSION = "1.2"
 AUTHOR = "FRX"
 DESCRIPTION = "Живой профиль: имя, био, аватарка-часы и эмодзи-статус по шаблонам, «читает/слушает …» (Spotify, Яндекс, Last.fm)"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/aura.py"
 
 SOURCES = ['публичные группы', 'непубличные группы', 'публичные каналы', 'непубличные каналы', 'боты', 'личные чаты']
 AVATAR_MODES = ['off', 'clock', 'carousel']

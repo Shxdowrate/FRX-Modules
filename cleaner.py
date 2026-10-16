@@ -32,6 +32,8 @@ MODULE_NAME = "cleaner"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Уборка аккаунта: мёртвые чаты, неактивные каналы, удалённые аккаунты, непрочитанное, черновики, кэш"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/cleaner.py"
 
 CATS = {
     'deleted_pm': ('Переписки с удалёнными аккаунтами', 'delete'),

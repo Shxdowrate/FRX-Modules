@@ -25,6 +25,8 @@ MODULE_NAME = "whisper"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Шёпот через инлайн: @бот wh [@user, 123] текст — прочитать могут только адресаты"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/whisper.py"
 
 ALERT_MAX = 190
 KEEP_DAYS = 30

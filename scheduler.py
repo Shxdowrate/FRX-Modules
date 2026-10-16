@@ -32,6 +32,8 @@ MODULE_NAME = "scheduler"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Отложенные и повторяющиеся сообщения и команды: .sched 18:00 текст · .sched каждый день 9:00 .команда"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/scheduler.py"
 
 UNITS = {'s': 1, 'с': 1, 'сек': 1, 'секунд': 1, 'm': 60, 'м': 60, 'мин': 60, 'min': 60, 'минут': 60, 'минуты': 60, 'минуту': 60,
          'h': 3600, 'ч': 3600, 'час': 3600, 'часа': 3600, 'часов': 3600, 'd': 86400, 'д': 86400, 'дн': 86400, 'день': 86400,

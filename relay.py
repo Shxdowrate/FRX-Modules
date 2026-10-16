@@ -33,6 +33,8 @@ MODULE_NAME = "relay"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Пересылка постов из каналов с фильтрами: слова, только медиа, без рекламы, копией без «переслано от», своя подпись"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/relay.py"
 
 DEFAULT_STOP = ['#реклама', '#ad', 'реклама', 'partner', 'спонсор', 'промокод']
 AD_LINK_RE = re.compile(r'(t\.me/\+|t\.me/joinchat|bit\.ly/|goo\.gl/|cutt\.ly/|clck\.ru/|vk\.cc/|tinyurl\.com/)', re.I)

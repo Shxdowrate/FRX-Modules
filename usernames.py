@@ -32,6 +32,8 @@ MODULE_NAME = "usernames"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Свободен ли юзернейм, кто занял, статус и цена на Fragment; подбор по шаблону; слежка с автозахватом"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/usernames.py"
 
 VALID = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]{3,31}$')
 

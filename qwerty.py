@@ -22,6 +22,8 @@ MODULE_NAME = "qwerty"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Исправляет текст, набранный не в той раскладке (ghbdtn → привет); .k — одна буква, есть авторежим"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/qwerty.py"
 
 EN = "`qwertyuiop[]asdfghjkl;'zxcvbnm,./~QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?@#$^&"
 RU = "ёйцукенгшщзхъфывапролджэячсмитьбю.ЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,\"№;:?"

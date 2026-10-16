@@ -32,6 +32,8 @@ MODULE_NAME = "buttons"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Посты с кнопками-ссылками: через инлайн или от стационарного бота без «via» (в каналы); правка кнопок постов"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/buttons.py"
 
 BTN_RE = re.compile(r'^\s*(?:\[(?P<t1>[^\]]+)\]\((?P<u1>[^)]+)\)|(?P<t2>.+?)\s+[-—–]\s+(?P<u2>\S+))\s*$')
 

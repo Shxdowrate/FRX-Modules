@@ -29,6 +29,8 @@ MODULE_NAME = "filters"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Заметки-автоответы: .filter ключ ответом на сообщение — и модуль отвечает им, когда в чате пишут ключ"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/filters.py"
 
 MODES = [('in', 'содержит ключ'), ('exact', 'точно ключ'), ('start', 'начинается с ключа'), ('word', 'ключ отдельным словом')]
 WHO = [('all', 'все'), ('me', 'только я'), ('white', 'белый список'), ('black', 'все, кроме чёрного списка')]

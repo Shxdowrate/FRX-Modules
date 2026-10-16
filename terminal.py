@@ -40,6 +40,8 @@ MODULE_NAME = "terminal"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Командная строка Windows / Linux / macOS из Telegram: живой вывод, стоп, ввод, рабочая папка, история"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/terminal.py"
 
 IS_WIN = os.name == 'nt'
 SHELLS = ['auto', 'bash', 'sh', 'zsh', 'fish', 'pwsh', 'powershell', 'cmd']

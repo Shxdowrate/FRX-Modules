@@ -27,6 +27,8 @@ MODULE_NAME = "onload"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Автозапуск команд при каждом старте FRX: в нужном чате, по порядку, с паузами и отчётом"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/onload.py"
 
 _TASK = {'t': None}
 

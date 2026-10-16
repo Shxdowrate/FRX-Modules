@@ -42,6 +42,8 @@ MODULE_NAME = "remote"
 VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Управление ПК из Telegram: скриншот, громкость, медиаклавиши, буфер, блокировка, сон и выключение по таймеру"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/remote.py"
 REQUIREMENTS = ["pycaw; sys_platform == 'win32'"]   # ставятся сами (core/requirements.py)
 
 SYSTEM = platform.system()            # 'Windows' | 'Darwin' | 'Linux'

@@ -31,6 +31,8 @@ MODULE_NAME = "worldclock"
 VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Время в городах, регионах и странах (все пояса страны с регионами), перевод времени, разница, инлайн"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/worldclock.py"
 REQUIREMENTS = ["tzdata"]   # ставятся сами (core/requirements.py)
 
 WD = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']

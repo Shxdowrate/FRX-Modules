@@ -21,6 +21,8 @@ MODULE_NAME = "whois"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Информация о пользователе, группе или канале: .whois ответом / @user / id; .id — быстрые id"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/whois.py"
 
 # опорные точки «id → дата регистрации» (примерно; Telegram раздаёт id почти по порядку)
 ID_DATES = [(1000000, 2013, 8), (10000000, 2014, 1), (50000000, 2014, 9), (100000000, 2015, 2), (200000000, 2016, 3),

@@ -30,6 +30,8 @@ MODULE_NAME = "radar"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Упоминания, ответы и ключевые слова во всех чатах — уведомлением от бота с кнопкой «перейти»"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/radar.py"
 
 SOURCES = ['личные чаты', 'группы', 'каналы']
 _LAST_OUT = {}      # chat_id -> когда вы последний раз писали

@@ -33,6 +33,8 @@ MODULE_NAME = "virustotal"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Проверка файлов, ссылок, доменов, IP и хешей на VirusTotal; автопроверка программ в личке"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/virustotal.py"
 
 API = 'https://www.virustotal.com/api/v3'
 GUI = 'https://www.virustotal.com/gui'

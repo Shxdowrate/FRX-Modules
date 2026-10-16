@@ -23,6 +23,8 @@ MODULE_NAME = "alwaysonline"
 VERSION = "1.0"
 AUTHOR = "FRX"
 DESCRIPTION = "Всегда в сети без чтения сообщений; по желанию — автопрочтение личек, групп, каналов, ботов с чёрным списком"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/alwaysonline.py"
 
 KINDS = [('read_private', '👤 Личка'), ('read_groups', '👥 Группы'), ('read_channels', '📢 Каналы'), ('read_bots', '🤖 Боты')]
 _state = {'last_ping': 0.0, 'last_read': {}, 'loop': None}

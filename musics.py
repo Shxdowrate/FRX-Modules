@@ -36,6 +36,8 @@ MODULE_NAME = "musics"
 VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Музыка: поиск по каталогу Deezer и ссылкам Spotify/Яндекс/Apple — mp3 с обложкой; тексты песен"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/musics.py"
 REQUIREMENTS = [("yt-dlp[default,deno]", "yt_dlp, deno")]   # ставятся сами (core/requirements.py)
 
 UA = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',

@@ -25,6 +25,8 @@ MODULE_NAME = "sysinfo"
 VERSION = "1.2"
 AUTHOR = "FRX"
 DESCRIPTION = "Сведения о системе: ОС, аптайм, нагрузка, память, диски, Python, дата-центр Telegram"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/sysinfo.py"
 REQUIREMENTS = ["psutil"]   # ставятся сами (core/requirements.py)
 
 DC_CITY = {1: 'Майами', 2: 'Амстердам', 3: 'Майами', 4: 'Амстердам', 5: 'Сингапур'}

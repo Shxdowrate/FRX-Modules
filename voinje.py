@@ -59,6 +59,8 @@ MODULE_NAME = "voinje"
 VERSION = "1.2"
 AUTHOR = "FRX"
 DESCRIPTION = "Музыка и видео в голосовом чате потоком: YouTube, ссылки, Яндекс Музыка и Spotify со входом, радио, файлы"
+TG_URL = "https://t.me/mescr_m"
+GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/voinje.py"
 REQUIREMENTS = [("yt-dlp[default,deno]", "yt_dlp, deno"), ("py-tgcalls>=3.0", "pytgcalls"), "ytmusicapi", "yandex-music", "zvuk-music"]   # ставятся сами (core/requirements.py)
 
 UA = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
