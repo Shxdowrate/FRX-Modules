@@ -15,6 +15,13 @@ Games — 14 настольных и карточных игр на двоих �
 Скрытое (карты в дураке и блэкджеке, свой флот в морском бое) показывается каждому игроку лично — в личке со
 стационарным ботом: кнопка «🃏 Мои карты» под партией открывает бота, он присылает ваш личный экран с кнопками.
 В дураке ходы делаются там же (карты соперника не видны никому).
+
+Секреты (слово в виселице, число в быках и коровах) в общий чат не попадают никогда:
+  • кнопка «🤫 Загадать в личке» — бот пришлёт личный экран, слово пишется ему сообщением, число — кнопками;
+  • или прямо в чате, как шёпот: наберите «@бот загадать <слово|число>» и выберите вариант — в чат уйдёт
+    только «🤫 … загадал(а)», без самого секрета;
+  • или «🎲 Случайно» — загадает бот.
+В виселице перед партией выбирается, кто загадывает (или слово загадывает бот, а угадывают оба по очереди).
 """
 
 import asyncio
@@ -30,7 +37,7 @@ import visual
 
 NAME = "Games"
 MODULE_NAME = "games"
-VERSION = "1.1"
+VERSION = "1.2"
 AUTHOR = "FRX"
 DESCRIPTION = "14 игр на двоих на инлайн-кнопках: крестики-нолики, 4 в ряд, морской бой, шашки, шахматы, реверси, сапёр, КНБ, виселица, быки и коровы, блэкджек, ним, точки-квадраты, дурак"
 TG_URL = "https://t.me/mescr_m"
@@ -138,6 +145,24 @@ class Game:
     def private_buttons(self, i):
         return []
 
+    def private_label(self):
+        """Подпись кнопки-ссылки на личный экран под партией (None — кнопки нет)."""
+        return self.PRIVATE_LABEL if self.PRIVATE and not self.finished else None
+
+    # --- секрет, который игрок загадывает тайно (слово / число): личка с ботом или «@бот загадать …» ---
+    SECRET = None                     # None | 'word' | 'number'
+
+    def needs_secret(self, i):
+        return False
+
+    def check_secret(self, value):
+        """Текст ошибки, если value не годится в секрет; None — годится."""
+        return None
+
+    def set_secret(self, i, value):
+        """Сохранить секрет игрока i (уже проверенный). Вернуть текст подтверждения."""
+        return "Принято"
+
     # --- переопределяется играми ---
     def setup(self):
         pass
@@ -150,10 +175,6 @@ class Game:
 
     async def handle(self, pid, tok):
         """Вернуть (текст_ответа, alert) или None. Мутирует состояние, ставит self.finished/winner/turn."""
-        return None
-
-    async def handle_input(self, pid, data, value):
-        """Ввод через InputButton (игры с секретным словом/числом)."""
         return None
 
     # --- служебное ---
@@ -183,6 +204,7 @@ class Match:
         self.created = time.time()
         self._shown = None                                # (текст, кнопки) последней отрисовки формы
         self.dm = {}                                      # id игрока -> {'msg': сообщение бота, 'shown': (текст, кнопки)}
+        self.meta = {}                                    # то, что переживает реванш (например, кто загадывал в прошлый раз)
 
     # ---- запуск самой игры ----
     def start_game(self):
@@ -232,8 +254,9 @@ class Match:
 
     def play_buttons(self):
         rows = list(self.game.board_buttons())
-        if self.game.PRIVATE and not self.game.finished and _BOT.get('username'):
-            rows.append([(self.game.PRIVATE_LABEL, f"url:https://t.me/{_BOT['username']}?start=gm{self.mid}")])
+        label = self.game.private_label()
+        if label and _BOT.get('username'):
+            rows.append([(label, f"url:https://t.me/{_BOT['username']}?start=gm{self.mid}")])
         if self.game.finished:
             rows.append([("🔁 Реванш", f"g:{self.mid}:rematch", "success"), (visual.btn('Закрыть', 'close'), f"g:{self.mid}:close")])
         else:
@@ -248,22 +271,33 @@ class Match:
 
     async def render(self):
         """Перерисовать форму партии (только если что-то поменялось) и личные экраны игроков."""
-        if self.form is not None:
+        if self.form is not None and not getattr(self.form, '_closed', False):
             text, buttons = self.text(), self.buttons()
             shown = (text, repr(buttons))
             if shown != self._shown:
-                await self.form.edit(text, buttons=buttons)
-                self._shown = shown
-        if self.game is not None and self.game.PRIVATE:
+                try:
+                    await self.form.edit(text, buttons=buttons)
+                    self._shown = shown
+                except RuntimeError:                       # форму уже закрыли/удалили — молча
+                    pass
+                except Exception as e:
+                    if 'not modified' in str(e).lower():
+                        self._shown = shown
+                    else:
+                        engine.tlog(f"[Games/{self.game_key}] форма: {type(e).__name__}: {e}")
+        if self.game is not None:
             for pid in list(self.dm):
-                await self.render_private(pid)
+                try:
+                    await self.render_private(pid)
+                except Exception as e:
+                    engine.tlog(f"[Games/{self.game_key}] личный экран: {type(e).__name__}: {e}")
 
     def private_view(self, pid):
         g = self.game
-        i = g.idx(pid)
+        i = g.idx(pid) if g is not None else -1
         G = GAMES[self.game_key]
         head = visual.title(G.NAME, sub="ваш личный экран")
-        if self.phase not in ('play', 'over') or i < 0:
+        if g is None or self.phase not in ('play', 'over') or i < 0:
             return head + "\n" + visual.hint("партия ещё не началась"), []
         if g.finished:
             text = "\n".join([head, g.turn_line(), "", g.private_text(i)])
@@ -563,28 +597,99 @@ def _bind(form, m):
     async def _(click):
         await _on_click(click, m.mid, click.data.split(':', 2)[2])
 
-    @form.on_input()
-    async def _(inp):
-        await _on_input(inp, m.mid)
+
+# =========================================================================== секреты: загадать тайно
+
+def _secret_matches(uid):
+    """Партии, где этот игрок прямо сейчас должен что-то загадать (свежие — первыми)."""
+    out = []
+    for m in MATCHES.values():
+        g = m.game
+        if g is None or g.finished or m.phase != 'play' or g.SECRET is None:
+            continue
+        i = g.idx(uid)
+        if i >= 0 and g.needs_secret(i):
+            out.append(m)
+    out.sort(key=lambda m: m.created, reverse=True)
+    return out
 
 
-async def _on_input(inp, mid):
-    m = MATCHES.get(mid)
-    if m is None or m.game is None or m.game.finished:
-        return
-    uid = inp.from_user.id if inp.from_user else None
-    i = m.game.idx(uid)
-    if i < 0:
-        return
-    try:
-        res = await m.game.handle_input(uid, inp.data, inp.value or '')
-    except Exception as e:
-        engine.tlog(f"[Games/{m.game_key}] input: {type(e).__name__}: {e}")
-        res = None
-    if m.phase == 'play' and m.game.finished:
-        m.phase = 'over'
+async def _accept_secret(m, uid, value):
+    """Проверить и сохранить секрет игрока. Возвращает (ok, текст)."""
+    g = m.game
+    if g is None or g.finished or m.phase != 'play':
+        return False, "Партия уже закрыта"
+    i = g.idx(uid)
+    if i < 0 or not g.needs_secret(i):
+        return False, "Сейчас загадывать не нужно"
+    value = (value or '').strip()
+    err = g.check_secret(value)
+    if err:
+        return False, err
+    msg = g.set_secret(i, value)
     await m.arm_timeout()
     await m.render()
+    return True, msg
+
+
+def _secret_what(kind):
+    return 'слово' if kind == 'word' else 'число'
+
+
+@bot.inline_query('загадать', 'secret', 'загадай', access='public')
+async def _secret_query(query):
+    """загадать слово или число для партии в Games — соперник его не увидит"""
+    matches = _secret_matches(query.user_id)
+    if not matches:
+        return [engine.InlineResult(
+            "Нечего загадывать", description="нет партии, где вы сейчас загадываете слово или число",
+            text=visual.hint("Сейчас загадывать нечего — начните виселицу или быков и коров: .game"))]
+    m = matches[0]
+    g = m.game
+    value = (query.text or '').strip()
+    what = _secret_what(g.SECRET)
+    if not value:
+        return [engine.InlineResult(
+            f"🤫 Наберите {what} после «загадать»", description="его не увидит никто, кроме вас",
+            text=visual.hint(f"{what.capitalize()} так и не набрали — попробуйте ещё раз: @бот загадать …"))]
+    err = g.check_secret(value)
+    if err:
+        return [engine.InlineResult(f"⚠️ {err}", description=f"{GAMES[m.game_key].NAME}: {what} не подходит",
+                                    text=visual.warn(f"{what.capitalize()} не подошло: {_esc(err)}"))]
+    name = query.first_name or query.username or str(query.user_id)
+    masked = "▢" * min(len(value), 20)
+
+    async def chosen(_inline_message_id):        # запрос приходит на каждую букву — сохраняем только отправленное
+        ok, msg = await _accept_secret(m, query.user_id, value)
+        if not ok:
+            engine.tlog(f"[Games] загадать: {msg}")
+
+    return [engine.InlineResult(
+        f"🤫 Загадать {what}: {masked}", description=f"{GAMES[m.game_key].NAME} — в чат уйдёт только «загадал(а)»",
+        text=f"🤫 <b>{_esc(name)}</b> загадал(а) {what}", on_chosen=chosen)]
+
+
+@bot.watcher(watch='bot', access='public')
+async def _secret_dm(event):
+    """Слово/число, присланное боту в личку, — секрет для текущей партии."""
+    if not getattr(event, 'is_private', False):
+        return
+    text = (event.raw_text or '').strip()
+    if not text or text.startswith('/'):
+        return
+    matches = _secret_matches(event.sender_id)
+    if not matches:
+        return
+    m = matches[0]
+    ok, msg = await _accept_secret(m, event.sender_id, text)
+    if ok:
+        try:
+            await event.delete()                         # чтобы секрет не висел даже в личке
+        except Exception:
+            pass
+        await event.respond(visual.ok(msg) + "\n" + visual.hint("возвращайтесь в чат с партией"))
+    else:
+        await event.respond(visual.warn(msg) + "\n" + visual.hint("пришлите ещё раз"))
 
 
 # =========================================================================== личные экраны (личка с ботом)
@@ -603,6 +708,10 @@ async def _private_start(event, payload):
     if not m.game.PRIVATE:
         await event.reply(visual.hint("В этой игре всё видно на общем поле"))
         return
+    try:
+        await event.delete()                             # «/start gm…» в личке не нужен
+    except Exception:
+        pass
     await m.render_private(uid, fresh=True)
 
 
@@ -629,6 +738,9 @@ async def _private_click(click):
         await click.answer()
         await m.render_private(uid, fresh=True)
         return
+    if tok == 'x':
+        await click.answer()
+        return
     await _apply_move(m, uid, tok, click)
 
 
@@ -638,12 +750,15 @@ async def _apply_move(m, uid, tok, click):
         res = await m.game.handle(uid, tok)
     except Exception as e:
         engine.tlog(f"[Games/{m.game_key}] {type(e).__name__}: {e}")
-        await click.answer(f"ошибка: {str(e)[:150]}", show_alert=True)
+        await click.answer("Не получилось сделать ход — попробуйте ещё раз", show_alert=True)
+        await m.render()
         return
     if res is not None:
         text, alert = res if isinstance(res, tuple) else (res, False)
         if text:
-            await click.answer(text, show_alert=alert)
+            await click.answer(str(text)[:190], show_alert=alert)
+        else:
+            await click.answer()
     else:
         await click.answer()
     if m.phase == 'play' and m.game.finished:
@@ -944,8 +1059,9 @@ class RPS(Game):
         self.last = ''
 
     def body(self):
-        lines = [f"раунд <b>{min(self.round, self.BEST_OF)}</b> из {self.BEST_OF}",
-                 f"счёт: {self.score[0]} : {self.score[1]}"]
+        rnd = (f"раунд <b>{self.round}</b> из {self.BEST_OF}" if self.round <= self.BEST_OF
+               else f"дополнительный раунд <b>{self.round - self.BEST_OF}</b>")
+        lines = [rnd, f"счёт: <b>{self.score[0]} : {self.score[1]}</b>"]
         if self.last:
             lines.append(self.last)
         if not self.finished:
@@ -1124,44 +1240,136 @@ class Hangman(Game):
     NAME = 'Виселица'
     EMOJI = '🪢'
     ALIASES = ('hangman', 'виселица')
-    HELP = 'Первый игрок загадывает слово, второй отгадывает по буквам. 6 ошибок — и отгадывающий проиграл.'
+    HELP = ('Один загадывает слово, другой отгадывает по буквам: 6 ошибок — и отгадывающий проиграл. Кто загадывает, '
+            'выбираете перед партией. Можно отдать слово боту — тогда угадываете оба по очереди.')
+    PRIVATE = True
+    SECRET = 'word'
+    LIVES = 6
     STAGES = ['😀', '🙂', '😐', '😟', '😨', '😰', '💀']
-    RU = list('абвгдеёжзийклмнопрстуфхцчшщъыьэюя')
+    RU = list('абвгдежзийклмнопрстуфхцчшщъыьэюя')          # «ё» считается за «е»
     EN = list('abcdefghijklmnopqrstuvwxyz')
+    WORDS = ('абрикос', 'айсберг', 'акварель', 'алфавит', 'апельсин', 'архипелаг', 'астронавт', 'балкон', 'барабан',
+             'батискаф', 'библиотека', 'бинокль', 'ботинок', 'вертолёт', 'велосипед', 'вулкан', 'гармошка', 'гербарий',
+             'гитара', 'горизонт', 'дельфин', 'дирижабль', 'жонглёр', 'журавль', 'загадка', 'звездопад', 'зеркало',
+             'игрушка', 'календарь', 'каникулы', 'карандаш', 'карусель', 'кенгуру', 'клавиатура', 'компас', 'крокодил',
+             'лабиринт', 'лимонад', 'малина', 'маяк', 'метель', 'микроскоп', 'мороженое', 'навигатор', 'носорог',
+             'облако', 'одуванчик', 'океан', 'орбита', 'паровоз', 'пингвин', 'планета', 'подсолнух', 'попугай',
+             'радуга', 'ракета', 'рюкзак', 'самовар', 'светлячок', 'сенокос', 'скрипка', 'снеговик', 'созвездие',
+             'телескоп', 'трамвай', 'тюльпан', 'ураган', 'фейерверк', 'фламинго', 'фонарик', 'футбол', 'хамелеон',
+             'шахматы', 'шоколад', 'экватор', 'эскимо', 'якорь', 'ящерица', 'черепаха', 'головоломка')
 
     def setup(self):
+        self.stage = 'roles'              # roles → set → guess
+        self.setter = None                # индекс загадывающего; None — слово загадал бот (solo)
+        self.solo = False
         self.word = None
         self.opened = set()
         self.wrong = set()
-        self.lives = 6
-        self.phase_set = True            # ждём загадку от игрока 0
+        self.turn = 0
+
+    # ---- секрет ----
+    @staticmethod
+    def _norm(value):
+        return " ".join((value or '').lower().replace('ё', 'е').split())
+
+    def check_secret(self, value):
+        w = self._norm(value)
+        letters = [c for c in w if c.isalpha()]
+        if len(letters) < 2:
+            return "нужно слово хотя бы из 2 букв"
+        if len(w) > 30:
+            return "слишком длинно — до 30 символов"
+        if any(not (c.isalpha() or c in ' -') for c in w):
+            return "только буквы, пробел и дефис"
+        ru = all(c in self.RU for c in letters)
+        en = all(c in self.EN for c in letters)
+        if not (ru or en):
+            return "буквы одного алфавита — русского или латиницы"
+        return None
+
+    def needs_secret(self, i):
+        return self.stage == 'set' and i == self.setter
+
+    def set_secret(self, i, value):
+        self.word = self._norm(value)
+        self.stage = 'guess'
+        self.turn = self.opp(i)
+        self.m.meta['hang_setter'] = self.pid(i)
+        return f"Слово загадано: {self.word.upper()} — соперник отгадывает"
+
+    # ---- вид ----
+    def private_label(self):
+        return "🤫 Загадать в личке" if self.stage == 'set' and not self.finished else None
+
+    def mark(self, i):
+        if self.stage == 'guess' and not self.solo and i in (0, 1):
+            return '🤫' if i == self.setter else '🔎'
+        return super().mark(i)
 
     def _alphabet(self):
-        return self.RU if (self.word and any(c in 'абвгдеёжзийклмнопрстуфхцчшщъыьэюя' for c in self.word)) else self.EN
+        return self.RU if (self.word and any(c in self.RU for c in self.word)) else self.EN
 
     def _masked(self):
-        return " ".join(c.upper() if (not c.isalpha() or c in self.opened) else '▢' for c in self.word)
+        return " ".join(('·' if c == ' ' else (c.upper() if (not c.isalpha() or c in self.opened) else '▢'))
+                        for c in self.word)
+
+    def _solved(self):
+        return all((not c.isalpha()) or c in self.opened for c in self.word)
+
+    def turn_line(self):
+        if self.finished:
+            return super().turn_line()
+        if self.stage == 'roles':
+            return visual.hint("выбираем, кто загадывает")
+        if self.stage == 'set':
+            return f"загадывает: {_mention(self.pid(self.setter), self.pname(self.setter))}"
+        who = "ход" if self.solo else "отгадывает"
+        return f"{who}: {self.mark(self.turn)} {_mention(self.pid(self.turn), self.pname(self.turn))}"
 
     def body(self):
-        if self.phase_set:
-            return visual.hint(f"{_esc(self.pname(0))} загадывает слово…")
-        lines = [self.STAGES[min(len(self.wrong), 6)],
+        if self.stage == 'roles':
+            lines = ["<b>Кто загадывает слово?</b>"]
+            last = self.m.meta.get('hang_setter')
+            if last is not None and self.idx(last) >= 0:
+                lines.append(visual.hint(f"в прошлый раз загадывал(а) {_esc(self.pname(self.idx(last)))}"))
+            lines.append(visual.hint("«Слово от бота» — угадываете оба по очереди, кто откроет слово — победил"))
+            return "\n".join(lines)
+        if self.stage == 'set':
+            bot_name = _BOT.get('username')
+            how = [visual.hint(f"{_esc(self.pname(self.setter))} загадывает слово — в чате его не будет видно"),
+                   visual.item("кнопка «🤫 Загадать в личке» — слово пишется боту"),
+                   visual.item(f"или прямо здесь: <code>@{bot_name or 'бот'} загадать слово</code>"),
+                   visual.item("или «🎲 Случайное слово»")]
+            return "\n".join(how)
+        lines = [self.STAGES[min(len(self.wrong), self.LIVES)] + "  " + engine.progress_bar(
+                     100 * (self.LIVES - len(self.wrong)) / self.LIVES, self.LIVES, 'heart'),
                  f"<code>{_esc(self._masked())}</code>",
-                 visual.field("осталось ошибок", self.lives - len(self.wrong), code=False)]
+                 visual.hint(f"букв: {sum(c.isalpha() for c in self.word)}" + (" · слово загадал бот" if self.solo else ''))]
         if self.wrong:
             lines.append(visual.hint("мимо: " + ", ".join(sorted(self.wrong)).upper()))
+        if self.finished:
+            lines.append(visual.field("слово", self.word.upper()))
         return "\n".join(lines)
 
     def board_buttons(self):
         if self.finished:
             return []
-        if self.phase_set:
-            return [[engine.InputButton("🤫 Загадать слово", "setword", hint="слово или фраза (видит только модуль)",
-                                        for_user=self.pid(0))]]
+        if self.stage == 'roles':
+            return [[("🤫 Загадаю я", self.cb("role:me"), "primary"), ("🎲 Жребий", self.cb("role:rnd"))],
+                    [("🤖 Слово от бота — угадываем оба", self.cb("role:bot"))]]
+        if self.stage == 'set':
+            return [[("🎲 Случайное слово", self.cb("rnd"), "primary")],
+                    [("↩ Выбрать заново", self.cb("roles"))]]
         rows, row = [], []
         for ch in self._alphabet():
             used = ch in self.opened or ch in self.wrong
-            row.append((ch.upper() if not used else '·', self.cb(f"l{ch}" if not used else "x")))
+            if ch in self.opened:
+                label = '✅'
+            elif ch in self.wrong:
+                label = '·'
+            else:
+                label = ch.upper()
+            row.append((label, self.cb(f"l{ch}" if not used else "x")))
             if len(row) == 8:
                 rows.append(row)
                 row = []
@@ -1169,23 +1377,61 @@ class Hangman(Game):
             rows.append(row)
         return rows
 
-    async def handle_input(self, pid, data, value):
-        if data != 'setword' or not self.phase_set or self.idx(pid) != 0:
-            return None
-        w = (value or '').strip().lower()
-        if not w or not any(c.isalpha() for c in w) or len(w) > 30:
-            return None
-        self.word = w
-        self.phase_set = False
-        self.turn = 1                     # отгадывает игрок 1
-        return None
+    def private_text(self, i):
+        if self.stage == 'roles':
+            return visual.hint("ждём, пока решите, кто загадывает")
+        if self.stage == 'set':
+            if i == self.setter:
+                return "\n".join(["🤫 <b>Пришлите слово сообщением прямо сюда</b>",
+                                  visual.hint("соперник его не увидит; можно фразу до 30 символов"),
+                                  visual.hint("или нажмите «🎲 Случайное слово»")])
+            return visual.hint("слово загадывает соперник — ждите, отгадывать будете в общем чате")
+        if not self.solo and i == self.setter:
+            return f"ваше слово: <b>{_esc(self.word.upper())}</b>\n" + visual.hint("соперник отгадывает в общем чате")
+        return visual.hint("вы отгадываете — буквы нажимайте в общем чате")
+
+    def private_buttons(self, i):
+        if self.stage == 'set' and i == self.setter and not self.finished:
+            return [[("🎲 Случайное слово", self.pcb("rnd"), "primary")]]
+        return []
+
+    # ---- ходы ----
+    def _start_set(self, setter):
+        self.setter = setter
+        self.stage = 'set'
+        self.turn = setter
 
     async def handle(self, pid, tok):
         i = self.idx(pid)
-        if self.phase_set:
+        if self.stage == 'roles':
+            if tok == 'role:me':
+                self._start_set(i)
+                return ("Загадывайте — соперник не увидит слово", False)
+            if tok == 'role:rnd':
+                self._start_set(random.randrange(2))
+                return (f"Жребий: загадывает {self.pname(self.setter)}", True)
+            if tok == 'role:bot':
+                self.solo = True
+                self.word = random.choice(self.WORDS).replace('ё', 'е')
+                self.stage = 'guess'
+                self.turn = random.randrange(2)
+                return (f"Слово загадано! Первым ходит {self.pname(self.turn)}", False)
+            return None
+        if self.stage == 'set':
+            if tok == 'roles':
+                self.setter = None
+                self.stage = 'roles'
+                return None
+            if tok == 'rnd':
+                if i != self.setter:
+                    return ("Слово загадывает соперник", False)
+                word = random.choice(self.WORDS)
+                self.set_secret(i, word)
+                return (f"Загадано слово: {self.word.upper()}", True)
             return ("Ждём, пока загадают слово", False)
-        if i != 1:
-            return ("Отгадывает соперник", False)
+        # --- отгадывание ---
+        if i != self.turn:
+            return ("Сейчас не ваш ход" if self.solo else "Отгадывает соперник", False)
         if not tok.startswith('l'):
             return None
         ch = tok[1:]
@@ -1193,13 +1439,17 @@ class Hangman(Game):
             return ("Эту букву уже называли", False)
         if ch in self.word:
             self.opened.add(ch)
-            if all((not c.isalpha()) or c in self.opened for c in self.word):
-                self.finished, self.winner = True, self.pid(1)
-            return ("Есть такая!", False)
+            if self._solved():
+                self.finished, self.winner = True, self.pid(i)
+                return ("Слово отгадано! 🎉", False)
+            return (f"Есть такая — {self.word.count(ch)} шт.", False)
         self.wrong.add(ch)
-        if len(self.wrong) >= self.lives:
-            self.finished, self.winner = True, self.pid(0)
-            return (f"Перебор ошибок. Слово: {self.word.upper()}", True)
+        if len(self.wrong) >= self.LIVES:
+            self.finished = True
+            self.winner = 'draw' if self.solo else self.pid(self.setter)
+            return (f"Ошибки кончились. Слово: {self.word.upper()}", True)
+        if self.solo:
+            self.turn = self.opp(i)
         return ("Мимо", False)
 
 
@@ -1209,12 +1459,20 @@ class BullsCows(Game):
     KEY = 'bulls'
     NAME = 'Быки и коровы'
     EMOJI = '🐂'
-    ALIASES = ('быкиикоровы', 'bullsandcows', 'коровы')
-    HELP = 'Каждый загадывает 4-значное число (цифры разные). По очереди угадываете число соперника: 🐂 — цифра на месте, 🐄 — есть, но не там. Кто первым наберёт 4 быка — победил.'
+    ALIASES = ('быкиикоровы', 'bullsandcows', 'коровы', 'быки')
+    HELP = ('Каждый тайно загадывает 4-значное число из разных цифр. По очереди угадываете число соперника: '
+            '🐂 — цифра на своём месте, 🐄 — есть, но не там. Кто первым откроет число — победил '
+            '(у второго игрока остаётся ответная попытка).')
+    PRIVATE = True
+    SECRET = 'number'
+    DIGITS = '1234567890'
 
     def setup(self):
         self.secret = [None, None]       # загаданное каждым
         self.history = [[], []]          # [(guess, bulls, cows), ...] по игрокам
+        self.draft = ''                  # число, которое набирает тот, чей ход (видно всем — это не секрет)
+        self.sdraft = ['', '']           # набор секрета на личном экране
+        self.last_chance = False
         self.turn = 0
 
     def _ready(self):
@@ -1227,55 +1485,165 @@ class BullsCows(Game):
     @staticmethod
     def _bc(guess, secret):
         bulls = sum(a == b for a, b in zip(guess, secret))
-        cows = sum(min(guess.count(d), secret.count(d)) for d in set(guess)) - bulls
+        cows = len(set(guess) & set(secret)) - bulls
         return bulls, cows
+
+    @staticmethod
+    def _slots(s):
+        return " ".join(list(s) + ['▢'] * (4 - len(s)))
+
+    # ---- секрет ----
+    def needs_secret(self, i):
+        return self.secret[i] is None and not self.finished
+
+    def check_secret(self, value):
+        v = (value or '').strip().replace(' ', '')
+        return None if self._valid(v) else "нужно 4 разные цифры, например 1234"
+
+    def set_secret(self, i, value):
+        self.secret[i] = value.strip().replace(' ', '')
+        self.sdraft[i] = ''
+        if self._ready():
+            self.turn = 0
+            return f"Число {self.secret[i]} загадано — игра началась!"
+        return f"Число {self.secret[i]} загадано — ждём соперника"
+
+    def private_label(self):
+        if self.finished:
+            return None
+        return "🔢 Загадать в личке" if not self._ready() else "🔢 Моё число"
+
+    def private_text(self, i):
+        if self.secret[i] is None:
+            return "\n".join(["🔢 <b>Загадайте число</b> — 4 разные цифры",
+                              f"<code>{self._slots(self.sdraft[i])}</code>",
+                              visual.hint("наберите кнопками или пришлите сообщением; соперник не увидит")])
+        lines = [f"ваше число: <b><code>{self.secret[i]}</code></b>"]
+        tries = self.history[self.opp(i)]
+        if tries:
+            lines.append(visual.hint("соперник пробовал: " + ", ".join(g for g, _b, _c in tries[-6:])))
+        if not self._ready():
+            lines.append(visual.hint("ждём, пока загадает соперник"))
+        return "\n".join(lines)
+
+    def private_buttons(self, i):
+        if self.secret[i] is not None or self.finished:
+            return []
+        d = self.sdraft[i]
+        keys = [(ch if ch not in d else '·', self.pcb(f"k{ch}" if ch not in d and len(d) < 4 else "x"))
+                for ch in self.DIGITS]
+        return [keys[:5], keys[5:],
+                [("⌫", self.pcb("kdel")),
+                 ("✅ Загадать", self.pcb("kok"), "success") if len(d) == 4 else ("✅ Загадать", self.pcb("kok"))],
+                [("🎲 Случайное число", self.pcb("rnd"))]]
+
+    # ---- вид ----
+    def turn_line(self):
+        if self.finished:
+            return super().turn_line()
+        if not self._ready():
+            return visual.hint("загадываем числа")
+        pre = "последняя попытка" if self.last_chance else "ход"
+        return f"{pre}: {self.mark(self.turn)} {_mention(self.pid(self.turn), self.pname(self.turn))}"
 
     def body(self):
         if not self._ready():
-            waiting = [self.pname(i) for i in (0, 1) if self.secret[i] is None]
-            return visual.hint("загадывают число: " + ", ".join(_esc(w) for w in waiting))
+            bot_name = _BOT.get('username')
+            lines = []
+            for i in (0, 1):
+                state = "✅ загадал(а)" if self.secret[i] is not None else "⏳ думает…"
+                lines.append(f"{self.mark(i)} {_esc(self.pname(i))} — {state}")
+            lines += ["", visual.hint("как загадать, чтобы никто не увидел:"),
+                      visual.item("«🔢 Загадать в личке» — кнопками у бота"),
+                      visual.item(f"или здесь: <code>@{bot_name or 'бот'} загадать 1234</code>"),
+                      visual.item("или «🎲 Загадать случайно»")]
+            return "\n".join(lines)
         lines = []
         for i in (0, 1):
-            lines.append(f"{self.mark(i)} <b>{_esc(self.pname(i))}</b>")
-            for g, b, c in self.history[i][-4:]:
-                lines.append(f"   <code>{g}</code>  🐂{b} 🐄{c}")
-            if not self.history[i]:
+            n = len(self.history[i])
+            lines.append(f"{self.mark(i)} <b>{_esc(self.pname(i))}</b>" + (f"  <i>попыток: {n}</i>" if n else ''))
+            for k, (g, b, c) in enumerate(self.history[i][-5:], start=max(1, n - 4)):
+                lines.append(f"   <code>{k:>2}. {g}</code>  🐂{b} 🐄{c}")
+            if not n:
                 lines.append("   " + visual.hint("ходов нет"))
+        if self.finished:
+            lines.append(visual.hint(f"числа: {_esc(self.pname(0))} — {self.secret[0]} · "
+                                     f"{_esc(self.pname(1))} — {self.secret[1]}"))
+        else:
+            lines += ["", f"набирает {self.mark(self.turn)}: <code>{self._slots(self.draft)}</code>"]
+            if self.last_chance:
+                lines.append(visual.warn("соперник уже угадал — последний шанс сравнять"))
         return "\n".join(lines)
 
     def board_buttons(self):
         if self.finished:
             return []
         if not self._ready():
-            rows = []
-            for i in (0, 1):
-                if self.secret[i] is None:
-                    rows.append([engine.InputButton(f"🔢 Загадать число ({self.pname(i)[:12]})", f"set{i}",
-                                                    hint="4 разные цифры, напр. 1234", for_user=self.pid(i))])
-            return rows
-        return [[engine.InputButton("🎯 Ваш ход — число", "guess", hint="4 разные цифры")]]
+            return [[("🎲 Загадать случайно", self.cb("rnd"), "primary")]]
+        d = self.draft
+        keys = [(ch if ch not in d else '·', self.cb(f"d{ch}" if ch not in d and len(d) < 4 else "x"))
+                for ch in self.DIGITS]
+        ok = ("✅ Проверить", self.cb("ok"), "success") if len(d) == 4 else ("✅ Проверить", self.cb("ok"))
+        return [keys[:5], keys[5:], [("⌫ Стереть", self.cb("del")), ok]]
 
-    async def handle_input(self, pid, data, value):
+    # ---- ходы ----
+    async def handle(self, pid, tok):
         i = self.idx(pid)
-        v = (value or '').strip()
-        if data in ('set0', 'set1'):
-            if int(data[-1]) != i or self.secret[i] is not None:
+        # секрет: кнопки личного экрана и «случайно»
+        if tok == 'rnd':
+            if self.secret[i] is not None:
+                return ("Вы уже загадали число", False)
+            num = "".join(random.sample(self.DIGITS, 4))
+            self.set_secret(i, num)
+            return (f"Ваше число: {num} — запомните (видно только вам)", True)
+        if tok.startswith('k'):
+            if self.secret[i] is not None:
+                return ("Число уже загадано", False)
+            key = tok[1:]
+            if key == 'del':
+                self.sdraft[i] = self.sdraft[i][:-1]
                 return None
-            if not self._valid(v):
-                return None
-            self.secret[i] = v
+            if key == 'ok':
+                if not self._valid(self.sdraft[i]):
+                    return ("Нужно 4 разные цифры", False)
+                return (self.set_secret(i, self.sdraft[i]), False)
+            if key.isdigit() and key not in self.sdraft[i] and len(self.sdraft[i]) < 4:
+                self.sdraft[i] += key
             return None
-        if data == 'guess' and self._ready():
-            if i != self.turn or not self._valid(v):
-                return None
-            b, c = self._bc(v, self.secret[self.opp(i)])
-            self.history[i].append((v, b, c))
-            if b == 4:
-                self.finished, self.winner = True, self.pid(i)
-            else:
-                self.turn = self.opp(i)
+        # угадывание
+        if not self._ready():
+            return ("Сначала оба загадывают числа", False)
+        if i != self.turn:
+            return ("Сейчас ход соперника", False)
+        if tok == 'del':
+            self.draft = self.draft[:-1]
             return None
-        return None
+        if tok.startswith('d'):
+            ch = tok[1:]
+            if ch.isdigit() and ch not in self.draft and len(self.draft) < 4:
+                self.draft += ch
+            return None
+        if tok != 'ok':
+            return None
+        guess = self.draft
+        if not self._valid(guess):
+            return ("Наберите 4 разные цифры", False)
+        self.draft = ''
+        b, c = self._bc(guess, self.secret[self.opp(i)])
+        self.history[i].append((guess, b, c))
+        if self.last_chance:                                   # ответная попытка второго игрока
+            self.finished = True
+            self.winner = 'draw' if b == 4 else self.pid(self.opp(i))
+            return ("Тоже угадали — ничья!" if b == 4 else f"{guess}: 🐂{b} 🐄{c} — не вышло", True)
+        if b == 4:
+            if i == 0 and len(self.history[1]) < len(self.history[0]):
+                self.last_chance = True
+                self.turn = 1
+                return ("🐂🐂🐂🐂 Угадали! У соперника ответная попытка", True)
+            self.finished, self.winner = True, self.pid(i)
+            return ("🐂🐂🐂🐂 Угадали!", True)
+        self.turn = self.opp(i)
+        return (f"{guess}: 🐂{b} 🐄{c}", False)
 
 
 # =========================================================================== 9. Сапёр-дуэль
@@ -1284,14 +1652,17 @@ class MinesweeperDuel(Game):
     KEY = 'ms'
     NAME = 'Сапёр-дуэль'
     EMOJI = '💣'
-    ALIASES = ('minesweeper', 'сапёр', 'saper')
-    HELP = 'По очереди открывайте клетки общего поля. Под клеткой может быть мина — кто её вскроет, проигрывает. Цифра — сколько мин рядом.'
-    W, H, MINES = 6, 6, 6
+    ALIASES = ('minesweeper', 'сапёр', 'сапер', 'saper')
+    HELP = ('По очереди открывайте клетки общего поля. Под клеткой может быть мина — кто её вскроет, проигрывает. '
+            'Цифра — сколько мин вокруг. Первый ход всегда безопасный.')
+    W, H, MINES = 6, 6, 7
+    DIGITS = {0: '▫️', 1: '1️⃣', 2: '2️⃣', 3: '3️⃣', 4: '4️⃣', 5: '5️⃣', 6: '6️⃣', 7: '7️⃣', 8: '8️⃣'}
 
     def setup(self):
         cells = [(r, c) for r in range(self.H) for c in range(self.W)]
         self.mines = set(random.sample(cells, self.MINES))
         self.open = {}                   # (r,c) -> число соседних мин
+        self.boom = None                 # клетка, где взорвались
         self.turn = 0
 
     def _neighbors(self, r, c):
@@ -1312,24 +1683,30 @@ class MinesweeperDuel(Game):
             if n == 0:
                 stack += self._neighbors(cr, cc)
 
-    DIGITS = {0: '·', 1: '1️⃣', 2: '2️⃣', 3: '3️⃣', 4: '4️⃣', 5: '5️⃣', 6: '6️⃣', 7: '7️⃣', 8: '8️⃣'}
+    def _safe_left(self):
+        return self.W * self.H - self.MINES - len(self.open)
 
     def body(self):
-        left = self.W * self.H - self.MINES - len(self.open)
-        return visual.hint(f"мин на поле: {self.MINES} · безопасных клеток осталось: {left}")
+        if self.finished and self.boom is not None:
+            return visual.hint(f"💥 мина! {_esc(self.pname(self.opp(self.idx(self.winner))))} подорвался(ась)")
+        return visual.hint(f"мин: {self.MINES} · безопасных клеток осталось: {self._safe_left()}")
 
     def board_buttons(self):
         rows = []
-        reveal = self.finished
         for r in range(self.H):
             row = []
             for c in range(self.W):
-                if (r, c) in self.open:
-                    row.append((self.DIGITS[self.open[(r, c)]], self.cb("x")))
-                elif reveal and (r, c) in self.mines:
+                cell = (r, c)
+                if cell == self.boom:
                     row.append(("💥", self.cb("x")))
+                elif cell in self.open:
+                    row.append((self.DIGITS.get(self.open[cell], '·'), self.cb("x")))
+                elif self.finished and cell in self.mines:
+                    row.append(("💣", self.cb("x")))
+                elif self.finished:
+                    row.append(("⬜", self.cb("x")))
                 else:
-                    row.append(("⬜", self.cb(f"o{r}{c}") if not self.finished else "x"))
+                    row.append(("⬜", self.cb(f"o{r}{c}")))
             rows.append(row)
         return rows
 
@@ -1337,21 +1714,29 @@ class MinesweeperDuel(Game):
         i = self.idx(pid)
         if i != self.turn:
             return ("Сейчас не ваш ход", False)
-        if not tok.startswith('o'):
+        if not tok.startswith('o') or len(tok) != 3:
             return None
         r, c = int(tok[1]), int(tok[2])
-        if (r, c) in self.open:
+        cell = (r, c)
+        if cell in self.open:
             return ("Уже открыто", False)
-        if (r, c) in self.mines:
-            self.open[(r, c)] = -1
+        if not self.open and cell in self.mines:              # первый ход не взрывается: мину переносим
+            free = [(rr, cc) for rr in range(self.H) for cc in range(self.W)
+                    if (rr, cc) not in self.mines and (rr, cc) != cell]
+            self.mines.discard(cell)
+            self.mines.add(random.choice(free))
+        if cell in self.mines:
+            self.boom = cell
             self.finished, self.winner = True, self.pid(self.opp(i))
             return ("💥 Мина! Вы проиграли", True)
+        before = len(self.open)
         self._flood(r, c)
-        if len(self.open) >= self.W * self.H - self.MINES:
+        if self._safe_left() <= 0:
             self.finished, self.winner = True, 'draw'      # всё безопасное вскрыто — ничья
             return ("Поле пройдено — ничья", False)
         self.turn = self.opp(i)
-        return None
+        opened = len(self.open) - before
+        return (f"Открыто клеток: {opened}", False) if opened > 1 else None
 
 
 # =========================================================================== 12. Точки-квадраты
@@ -1361,82 +1746,67 @@ class DotsAndBoxes(Game):
     NAME = 'Точки-квадраты'
     EMOJI = '⬛'
     ALIASES = ('dotsandboxes', 'точки', 'квадраты')
-    HELP = 'Проводите линии между точками. Замкнули квадрат — он ваш и вы ходите ещё раз. Больше квадратов в конце — победа.'
-    N = 3                                 # 3x3 точек -> 2x2 квадрата
+    HELP = ('Проводите линии между соседними точками (жмите на ⋯ и ⋮). Замкнули квадрат — он ваш, и вы ходите ещё раз. '
+            'Больше квадратов в конце — победа.')
+    N = 4                                 # 4×4 точки → 3×3 квадрата (нечётно — ничьей не бывает)
 
     def setup(self):
-        self.h = {}                       # горизонтальные рёбра (r,c) между (r,c)-(r,c+1): r in 0..N-1, c in 0..N-2
-        self.v = {}                       # вертикальные рёбра (r,c): r 0..N-2, c 0..N-1
+        self.h = {}                       # горизонтальные рёбра (r,c): (r,c)–(r,c+1); r 0..N-1, c 0..N-2 -> кто провёл
+        self.v = {}                       # вертикальные рёбра (r,c): (r,c)–(r+1,c);   r 0..N-2, c 0..N-1
         self.boxes = {}                   # (r,c) 0..N-2 -> owner
+        self.last = None                  # последнее ребро
         self.turn = 0
         self.score = [0, 0]
 
-    def _box_done(self, r, c, trial=None):
-        edges = [('h', r, c), ('h', r + 1, c), ('v', r, c), ('v', r, c + 1)]
-        def has(kind, rr, cc):
-            d = self.h if kind == 'h' else self.v
-            return (rr, cc) in d or (trial == (kind, rr, cc))
-        return all(has(*e) for e in edges)
+    def mark(self, i):
+        return ('🟥', '🟦')[i] if i in (0, 1) else '·'
+
+    def _box_done(self, r, c):
+        return (r, c) in self.h and (r + 1, c) in self.h and (r, c) in self.v and (r, c + 1) in self.v
 
     def body(self):
-        # рисуем поле: точки, рёбра, владельцы
-        lines = []
-        owner_mark = {0: '🅰', 1: '🅱'}
-        for r in range(self.N):
-            # ряд точек + горизонтальные рёбра
-            line = ''
-            for c in range(self.N):
-                line += '•'
-                if c < self.N - 1:
-                    line += '──' if (r, c) in self.h else '  '
-            lines.append(line)
-            if r < self.N - 1:
-                line = ''
-                for c in range(self.N):
-                    line += '│' if (r, c) in self.v else ' '
-                    if c < self.N - 1:
-                        o = self.boxes.get((r, c))
-                        line += owner_mark[o] if o is not None else '  '
-                lines.append(line)
-        lines.append(f"\n🅰 {self.score[0]} : {self.score[1]} 🅱")
-        return "<code>" + "\n".join(lines) + "</code>"
-
-    def mark(self, i):
-        return ('🅰', '🅱')[i] if i in (0, 1) else '·'
+        total = (self.N - 1) ** 2
+        return "\n".join([f"🟥 <b>{self.score[0]}</b> : <b>{self.score[1]}</b> 🟦",
+                          visual.hint(f"свободных квадратов: {total - len(self.boxes)}")])
 
     def board_buttons(self):
-        if self.finished:
-            return []
+        size = 2 * self.N - 1
         rows = []
-        # горизонтальные рёбра
-        hrow = []
-        for r in range(self.N):
-            for c in range(self.N - 1):
-                if (r, c) not in self.h:
-                    hrow.append((f"─{r}{c}", self.cb(f"h{r}{c}")))
-        for k in range(0, len(hrow), 4):
-            rows.append(hrow[k:k + 4])
-        vrow = []
-        for r in range(self.N - 1):
-            for c in range(self.N):
-                if (r, c) not in self.v:
-                    vrow.append((f"│{r}{c}", self.cb(f"v{r}{c}")))
-        for k in range(0, len(vrow), 4):
-            rows.append(vrow[k:k + 4])
+        for R in range(size):
+            row = []
+            for C in range(size):
+                if R % 2 == 0 and C % 2 == 0:                     # точка
+                    row.append(("•", self.cb("x")))
+                elif R % 2 == 0:                                  # горизонтальное ребро
+                    key = (R // 2, C // 2)
+                    if key in self.h:
+                        row.append(("➖" if self.last != ('h',) + key else "🔸", self.cb("x")))
+                    else:
+                        row.append(("⋯", self.cb(f"h{key[0]}{key[1]}" if not self.finished else "x")))
+                elif C % 2 == 0:                                  # вертикальное ребро
+                    key = (R // 2, C // 2)
+                    if key in self.v:
+                        row.append(("❙" if self.last != ('v',) + key else "🔸", self.cb("x")))
+                    else:
+                        row.append(("⋮", self.cb(f"v{key[0]}{key[1]}" if not self.finished else "x")))
+                else:                                             # квадрат
+                    o = self.boxes.get((R // 2, C // 2))
+                    row.append((self.mark(o) if o is not None else "▫️", self.cb("x")))
+            rows.append(row)
         return rows
 
     async def handle(self, pid, tok):
         i = self.idx(pid)
         if i != self.turn:
             return ("Сейчас не ваш ход", False)
-        if tok[0] not in ('h', 'v'):
+        if len(tok) != 3 or tok[0] not in ('h', 'v'):
             return None
         kind, r, c = tok[0], int(tok[1]), int(tok[2])
         d = self.h if kind == 'h' else self.v
         if (r, c) in d:
             return ("Линия уже есть", False)
         d[(r, c)] = i
-        # какие квадраты замкнулись?
+        self.last = (kind, r, c)
         gained = 0
         for br in range(self.N - 1):
             for bc in range(self.N - 1):
@@ -1447,9 +1817,11 @@ class DotsAndBoxes(Game):
         if len(self.boxes) >= (self.N - 1) ** 2:
             self.finished = True
             self.winner = 'draw' if self.score[0] == self.score[1] else self.pid(0 if self.score[0] > self.score[1] else 1)
-        elif gained == 0:
+            return None
+        if gained == 0:
             self.turn = self.opp(i)
-        return ("+%d квадрат(а) — ходите ещё!" % gained, False) if gained else None
+            return None
+        return (f"+{gained} — ходите ещё!", False)
 
 
 # =========================================================================== 3-bis. Морской бой
@@ -1516,10 +1888,12 @@ class Battleship(Game):
 
     def body(self):
         me, opp = self.turn, self.opp(self.turn)
-        mine_left = sum(len(s) for s in self.ships[me]) - len(self.hits[opp] & set().union(*self.ships[me]) if self.ships[me] else set())
         opp_cells = set().union(*self.ships[opp]) if self.ships[opp] else set()
         opp_left = len(opp_cells) - len(self.hits[me] & opp_cells)
-        return visual.hint(f"стреляет {self.mark(me)} {_esc(self.pname(me))} · у соперника осталось клеток кораблей: {opp_left}")
+        if self.finished:
+            return visual.hint("поле победителя: 🚢 — уцелевшие корабли соперника, ❌ — потопленные")
+        return "\n".join([f"🎯 стреляет {self.mark(me)} <b>{_esc(self.pname(me))}</b> по полю соперника",
+                          visual.hint(f"у соперника целых клеток кораблей: {opp_left} · 💥 попал · ❌ потоплен · 🔵 мимо")])
 
     def board_buttons(self):
         me, opp = self.turn, self.opp(self.turn)
@@ -1716,22 +2090,19 @@ class Checkers(Game):
         return False
 
     def body(self):
-        glyph = {None: '·', (0, False): '🔴', (0, True): '🔺', (1, False): '🔵', (1, True): '🔷'}
-        lines = []
-        for r in range(self.N):
-            row = ''
-            for c in range(self.N):
-                if (r + c) % 2 == 0:
-                    row += '⬜'
-                else:
-                    row += glyph[self.b[r][c]] if self.b[r][c] is None else glyph[self.b[r][c]]
-            lines.append(row)
-        extra = ''
-        if self.sel:
-            extra = "\n" + visual.hint(f"выбрана {chr(97 + self.sel[1])}{self.N - self.sel[0]} — выберите клетку")
+        mine = [sum(1 for row in self.b for x in row if x and x[0] == i) for i in (0, 1)]
+        lines = [f"🔴 {mine[0]} : {mine[1]} 🔵   " + visual.hint("🔺🔷 — дамки")]
+        if self.finished:
+            return "\n".join(lines)
+        if self.chain:
+            lines.append(visual.warn("серия взятий — бейте дальше той же шашкой"))
+        elif self.sel:
+            lines.append(visual.hint(f"выбрана {chr(97 + self.sel[1])}{self.N - self.sel[0]} — ✅ куда можно пойти"))
         elif self._all_captures(self.turn):
-            extra = "\n" + visual.hint("есть взятие — бить обязательно")
-        return "<code>" + "\n".join(lines) + "</code>" + extra
+            lines.append(visual.warn("есть взятие — бить обязательно"))
+        else:
+            lines.append(visual.hint("выберите свою шашку"))
+        return "\n".join(lines)
 
     def board_buttons(self):
         if self.finished:
@@ -1939,22 +2310,18 @@ class Chess(Game):
         return False
 
     def body(self):
+        if self.finished:
+            res = getattr(self, 'result', None)
+            return visual.hint({'mate': "мат", 'stalemate': "пат — ничья"}.get(res, "партия окончена"))
         lines = []
-        for r in range(8):
-            row = ''
-            for c in range(8):
-                cell = self.b[r][c]
-                if cell is None:
-                    row += '▫️' if (r + c) % 2 else '▪️'
-                else:
-                    row += self.GLYPH[cell]
-            lines.append(row)
-        tail = ''
-        if self.check and not self.finished:
-            tail = "\n" + visual.warn("шах!")
-        elif self.sel:
-            tail = "\n" + visual.hint(f"выбрана {chr(97 + self.sel[1])}{8 - self.sel[0]}")
-        return "<code>" + "\n".join(lines) + "</code>" + tail
+        if self.check:
+            lines.append(visual.warn("шах!"))
+        if self.sel:
+            lines.append(visual.hint(f"выбрана {chr(97 + self.sel[1])}{8 - self.sel[0]} — ✅ куда можно пойти, ✴️ — отменить"))
+        else:
+            side = "белые ♙" if self.turn == 0 else "чёрные ♟"
+            lines.append(visual.hint(f"ходят {side}: выберите фигуру"))
+        return "\n".join(lines)
 
     def board_buttons(self):
         if self.finished:
@@ -2011,6 +2378,7 @@ class Chess(Game):
             if not self._any_legal(opp):
                 self.finished = True
                 self.winner = self.pid(i) if self.check else 'draw'   # мат или пат
+                self.result = 'mate' if self.check else 'stalemate'
                 return ("Мат!" if self.check else "Пат — ничья", True)
             self.turn = opp
             return ("Шах!", False) if self.check else None
@@ -2235,7 +2603,7 @@ class Durak(Game):
                 self.msg = "Бито"
                 self._end_bout(defender_took=False)
                 return None
-            if tok.startswith('a'):
+            if tok.startswith('a') and tok[1:].isdigit():
                 k = int(tok[1:])
                 if k not in self._legal_attack_cards(i):
                     return ("Этой картой нельзя", False)
@@ -2255,8 +2623,10 @@ class Durak(Game):
                 self.msg = f"{_esc(self.pname(self.defender))} берёт"
                 self._end_bout(defender_took=True)
                 return None
-            if tok.startswith('d'):
+            if tok.startswith('d') and tok[1:].isdigit():
                 k = int(tok[1:])
+                if not (0 <= k < len(self.hands[self.defender])):
+                    return ("Карта уже ушла — обновите экран", False)
                 card = self.hands[self.defender][k]
                 target = next((p for p in self.table if p['dfn'] is None), None)
                 if target is None:
