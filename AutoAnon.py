@@ -10,6 +10,7 @@ AutoAnon — автопоиск собеседников в анонимном �
 Как работает: модуль сам отправляет команду поиска, ждёт «Собеседник найден», здоровается, следит за
 ответом и скипает молчунов (тайм-аут), собеседников с «стоп-фразами» (автоскип) и ушедших. На ключевое
 слово отвечает сам, ставит диалог на паузу и присылает уведомление в личку от бота.
+Приветствие можно через N секунд заменить другим текстом (edit_greeting_message_*).
 Если собеседник ответил, а включено «pause_on_reply», автоматика замирает — диалог ваш, пока он не закончится.
 
 Все тексты, команды и триггеры — в .cfg AutoAnon.
@@ -29,7 +30,7 @@ import visual
 
 NAME = "AutoAnon"
 MODULE_NAME = "AutoAnon"
-VERSION = "2.0"
+VERSION = "2.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Автопоиск собеседников в анонимном чате @AnonRuBot: приветствие, автоскип, тайм-ауты, уведомления, живая панель"
 TG_URL = "https://t.me/mescr_m"
@@ -58,7 +59,11 @@ S = {
     'last_render': 0.0,
     'render_task': None,
     'peer_name': None,        # @username анонимного бота (для кнопки «открыть чат»)
+    'dialog': 0,              # номер диалога: растёт на каждого найденного собеседника
+    'edit_task': None,        # отложенная правка приветствия
 }
+
+DEFAULT_TRIGGER_WORDS = {'💕💕': 'Вижу-вижу, сейчас отвечу!'}
 _LOCK = asyncio.Lock()
 
 STAT_KEYS = ('found', 'replied', 'autoskip', 'timeout', 'left', 'keyword', 'manual')
@@ -103,17 +108,41 @@ async def _create_config(module_info):
     await cfg('search_cmd', 'Сообщение для поиска собеседника', 'str', '🙋‍♀️ Поиск Ж')
     await cfg('next_cmd', 'Команда «следующий собеседник»', 'str', '/next')
     await cfg('stop_cmd', 'Команда «завершить диалог»', 'str', '/stop')
-    await cfg('greeting_text', 'Первое сообщение собеседнику (пусто — не здороваться)', 'str', 'Привет! МД?')
-    await cfg('trigger_search_dialog', 'Текст бота: идёт поиск', 'str', 'Ищем девушку...')
-    await cfg('trigger_start_dialog', 'Текст бота: собеседник найден', 'str', 'Собеседник найден')
-    await cfg('trigger_dialog_dropped_by_user', 'Текст бота: диалог завершили вы', 'str',
-              'Вы закончили связь с вашим собеседником')
-    await cfg('trigger_dialog_dropped_by_peer', 'Текст бота: диалог завершил собеседник', 'str',
-              'Собеседник закончил с вами связь')
+    await cfg('greeting_text', 'Первое сообщение собеседнику — случайное из списка (пусто — не здороваться)', 'list',
+              ['Привет! МД?'])
+    await cfg('edit_greeting_message_status', 'Через edit_greeting_message_sleep секунд заменить приветствие '
+              'текстом edit_greeting_message (если диалог ещё идёт)', 'bool', False)
+    await cfg('edit_greeting_message', 'На что заменить приветствие', 'str', '')
+    await cfg('edit_greeting_message_sleep', 'Через сколько секунд заменить приветствие', 'int', 10,
+              valid={'min_value': 1, 'max_value': 3600})
+    await cfg('trigger_search_dialog', 'Тексты бота: идёт поиск (любой из списка, часть сообщения)', 'list',
+              ['Ищем девушку...'])
+    await cfg('trigger_start_dialog', 'Тексты бота: собеседник найден (любой из списка)', 'list', ['Собеседник найден'])
+    await cfg('trigger_dialog_dropped_by_user', 'Тексты бота: диалог завершили вы (любой из списка)', 'list',
+              ['Вы закончили связь с вашим собеседником'])
+    await cfg('trigger_dialog_dropped_by_peer', 'Тексты бота: диалог завершил собеседник (любой из списка)', 'list',
+              ['Собеседник закончил с вами связь'])
     await cfg('autoskip_trigger', 'Стоп-фразы собеседника → сразу скип. Целое сообщение без учёта регистра; '
               '*слово* в звёздочках — если встречается где угодно', 'list', [])
-    await cfg('trigger_word', 'Ключевое слово собеседника: ответить, поставить на паузу и уведомить вас', 'str', '💕💕')
-    await cfg('trigger_word_answer', 'Ответ на ключевое слово (пусто — не отвечать)', 'str', 'Вижу-вижу, сейчас отвечу!')
+    # ключевые слова → ответ; раньше было одно слово (trigger_word) и один ответ (trigger_word_answer) — переносим
+    try:
+        await engine.get_config('trigger_words')
+        fresh = False
+    except KeyError:
+        fresh = True
+    await cfg('trigger_words', 'Ключевые слова собеседника → ответ (пустой ответ — не отвечать). Слово встретилось — '
+              'ответить, поставить диалог на паузу и уведомить вас', 'dict', DEFAULT_TRIGGER_WORDS)
+    if fresh:
+        try:
+            old_word = (await engine.get_config('trigger_word') or '').strip()
+        except KeyError:
+            old_word = ''
+        if old_word:
+            try:
+                old_answer = await engine.get_config('trigger_word_answer') or ''
+            except KeyError:
+                old_answer = ''
+            await engine.edit_config('trigger_words', 'edit', {old_word: old_answer})
     await cfg('random_wait', 'Максимальная пауза перед действием, сек (имитация человека)', 'int', 5,
               valid={'min_value': 1, 'max_value': 60})
     await cfg('timeout', 'Сколько секунд тишины терпеть, прежде чем скипнуть', 'int', 180,
@@ -124,6 +153,20 @@ async def _create_config(module_info):
 
 async def _c(key):
     return await engine.get_config(key)
+
+
+async def _cl(key):
+    """Настройка-список (строку тоже понимает — на случай старого значения)."""
+    v = await _c(key)
+    if isinstance(v, str):
+        v = [v]
+    return [str(x) for x in (v or []) if str(x).strip()]
+
+
+def _found(txt, variants):
+    """Встречается ли в тексте хоть один вариант (без учёта регистра)."""
+    low = (txt or '').casefold()
+    return any(v.casefold() in low for v in variants)
 
 
 # --------------------------------------------------------------------------- статистика и журнал
@@ -253,10 +296,47 @@ def _refresh():
 
 async def _send(text):
     if not text:
-        return
+        return None
     chat_id = await _c('chat_id')
     _touch()
-    await engine.send_message(chat_id, text)
+    return await engine.send_message(chat_id, text)
+
+
+def _cancel_greeting_edit():
+    t = S.get('edit_task')
+    if t is not None and not t.done():
+        t.cancel()
+    S['edit_task'] = None
+
+
+async def _edit_greeting_later(msg, text, delay, gen, dialog):
+    """Через delay секунд заменить приветствие — если это всё ещё тот же диалог и автоматика работает."""
+    try:
+        await asyncio.sleep(delay)
+        if not (S['running'] and S['gen'] == gen and S['dialog'] == dialog and S['stage'] in ('greet', 'chat', 'paused')):
+            return
+        await msg.edit(text)
+        _log('✏️', 'приветствие изменено')
+        _refresh()
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        engine.tlog(f"[AutoAnon] не удалось изменить приветствие: {type(e).__name__}: {e}")
+
+
+async def _greet(gen):
+    greetings = await _cl('greeting_text')
+    if not greetings or not await _human_pause(gen):
+        return
+    sent = await _send(random.choice(greetings))
+    if sent is None or not await _c('edit_greeting_message_status'):
+        return
+    new_text = (await _c('edit_greeting_message') or '').strip()
+    if not new_text:
+        return
+    _cancel_greeting_edit()
+    S['edit_task'] = asyncio.ensure_future(_edit_greeting_later(
+        sent, new_text, max(1, int(await _c('edit_greeting_message_sleep'))), gen, S['dialog']))
 
 
 async def _human_pause(gen):
@@ -309,6 +389,7 @@ async def stop(silent=False):
     was = S['running']
     S['running'] = False
     S['gen'] += 1
+    _cancel_greeting_edit()
     _set_stage('off')
     if was and not silent:
         _log('⏸', 'остановлено')
@@ -323,6 +404,7 @@ async def skip_now(reason='manual'):
     if reason == 'manual' and S['stage'] in ('greet', 'chat'):
         await _bump('manual')
     S['replied'] = S['notified'] = False
+    _cancel_greeting_edit()
     _set_stage('search')
     _log('⏭', 'следующий собеседник')
     _refresh()
@@ -370,28 +452,29 @@ async def _handle_bot_message(event):
     txt = event.raw_text or ''
     has_media = bool(getattr(event, 'media', None))
 
-    t_search = await _c('trigger_search_dialog')
-    t_start = await _c('trigger_start_dialog')
-    t_drop_me = await _c('trigger_dialog_dropped_by_user')
-    t_drop_peer = await _c('trigger_dialog_dropped_by_peer')
+    t_search = await _cl('trigger_search_dialog')
+    t_start = await _cl('trigger_start_dialog')
+    t_drop_me = await _cl('trigger_dialog_dropped_by_user')
+    t_drop_peer = await _cl('trigger_dialog_dropped_by_peer')
 
-    if t_search and t_search in txt:
+    if _found(txt, t_search):
         _set_stage('search')
         return
 
-    if t_start and t_start in txt:
+    if _found(txt, t_start):
         await _bump('found')
         S['replied'] = S['notified'] = False
+        S['dialog'] += 1
+        _cancel_greeting_edit()
         _set_stage('greet')
         _log('👋', 'собеседник найден')
         _refresh()
-        greeting = await _c('greeting_text')
-        if greeting and await _human_pause(gen):
-            await _send(greeting)
+        await _greet(gen)
         return
 
-    if (t_drop_me and t_drop_me in txt) or (t_drop_peer and t_drop_peer in txt):
-        by_peer = bool(t_drop_peer and t_drop_peer in txt)
+    by_peer = _found(txt, t_drop_peer)
+    if by_peer or _found(txt, t_drop_me):
+        _cancel_greeting_edit()
         if by_peer:
             await _bump('left')
             _log('🚪', 'собеседник ушёл')
@@ -423,17 +506,21 @@ async def _handle_bot_message(event):
         await _bump('replied')
         _log('💬', 'собеседник ответил')
 
-    word = await _c('trigger_word')
-    if word and word.lower() in txt.lower():
+    words = await _c('trigger_words')
+    if not isinstance(words, dict):
+        words = {str(words): ''} if words else {}
+    low = txt.casefold()
+    word = next((w for w in words if str(w).strip() and str(w).casefold() in low), None)
+    if word is not None:
         await _bump('keyword')
         _set_stage('paused')
         S['notified'] = True
-        _log('💕', 'ключевое слово — пауза')
+        _log('💕', f"ключевое слово «{_esc(str(word)[:20])}» — пауза")
         _refresh()
         await _notify("\n".join([visual.title("AutoAnon", sub="ключевое слово!"),
                                  f"<blockquote>{preview}</blockquote>",
                                  visual.hint("диалог поставлен на паузу и ждёт вас")]))
-        answer = await _c('trigger_word_answer')
+        answer = str(words.get(word) or '').strip()
         if answer and await _human_pause(gen):
             await _send(answer)
         return
@@ -489,6 +576,7 @@ async def _resume():
 async def _unload():
     S['running'] = False
     S['gen'] += 1
+    _cancel_greeting_edit()
     t = S.get('render_task')
     if t is not None and not t.done():
         t.cancel()

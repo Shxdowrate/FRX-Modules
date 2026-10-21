@@ -19,7 +19,7 @@ import visual
 
 NAME = "qwerty"
 MODULE_NAME = "qwerty"
-VERSION = "1.0"
+VERSION = "1.1"
 AUTHOR = "FRX"
 DESCRIPTION = "Исправляет текст, набранный не в той раскладке (ghbdtn → привет); .k — одна буква, есть авторежим"
 TG_URL = "https://t.me/mescr_m"
@@ -183,6 +183,8 @@ async def k_cmd(event):
 @decorators.watcher()
 async def auto_fix(event):
     if not event.out or getattr(event.message, 'via_bot_id', None) or getattr(event.message, 'fwd_from', None):
+        return
+    if getattr(event, 'frx_layout_command', None):     # «юзштп» ядро уже выполнило как .ping — не править
         return
     text = event.raw_text or ''
     if not text or event.message.entities or text.startswith(await engine.get_prefix()) or text.startswith('/'):
