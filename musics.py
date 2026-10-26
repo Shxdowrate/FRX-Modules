@@ -8,10 +8,14 @@ Musics — поиск и скачивание музыки.
   .lyrics <запрос>     текст песни (lrclib.net); ответом на трек — текст этого трека
 
 Как это работает без аккаунтов: каталог и обложки — открытый API Deezer, по ссылкам Spotify/Яндекса/Apple модуль берёт
-из страницы «исполнитель — название». Звук — сначала быстрый путь: музыкальные инлайн-боты Telegram (настройка bots,
-по умолчанию @lybot) — у них трек уже лежит в Telegram и пересылается за секунду, без скачивания. Не нашёлся там —
-yt-dlp скачивает из открытых источников (m4a без перекодирования — быстро; mp3 — по настройке format). Скачивание музыки — на
-ответственности пользователя: соблюдайте авторские права в своей стране.
+из страницы «исполнитель — название». Звук, по порядку:
+  1. музыкальные инлайн-боты Telegram (настройка bots: @lybot — только уже скачанные у него треки, @deezermusicbot) —
+     все разом, несколько формулировок запроса; файл уже лежит в Telegram и отправляется за 1–3 секунды;
+  2. yt-dlp из открытых источников: YouTube и SoundCloud по очереди, лучшие по названию и длительности. Если YouTube
+     просит «подтвердите, что вы не бот» (бывает с IP VPN/хостинга) — модуль на 30 минут обходит YouTube стороной,
+     берёт SoundCloud и разово обновляет yt-dlp. m4a — без перекодирования (быстро); mp3 — по настройке format.
+Ошибки видны в карточке трека и в журнале FRX (строки [musics]). Скачивание музыки — на ответственности пользователя:
+соблюдайте авторские права в своей стране.
 """
 
 import asyncio
@@ -33,12 +37,13 @@ import visual
 
 NAME = "Musics"
 MODULE_NAME = "musics"
-VERSION = "1.1"
+VERSION = "1.2"
 AUTHOR = "FRX"
 DESCRIPTION = "Музыка: поиск по каталогу Deezer и ссылкам Spotify/Яндекс/Apple — mp3 с обложкой; тексты песен"
 TG_URL = "https://t.me/mescr_m"
 GIT_URL = "https://github.com/Shxdowrate/FRX-Modules/blob/main/musics.py"
-REQUIREMENTS = [("yt-dlp[default,deno]", "yt_dlp, deno")]   # ставятся сами (core/requirements.py)
+REQUIREMENTS = [("yt-dlp[default,deno]", "yt_dlp, deno"),
+                "cryptg; sys_platform != 'android'"]   # cryptg: шифрование Telethon в C — выгрузка файлов в разы быстрее   # ставятся сами (core/requirements.py)
 
 UA = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
       'Accept-Language': 'ru,en;q=0.8'}
@@ -50,12 +55,31 @@ def _esc(x):
     return html.escape(str(x), quote=False)
 
 
+def _log_exc(where, e):
+    """Ошибки модуля — в журнал FRX (print уходит в frx_full.log), а не в пустоту."""
+    import traceback
+    print(f"[musics] {where}: {type(e).__name__}: {e}\n" + ''.join(traceback.format_exception(type(e), e, e.__traceback__))[-1500:])
+
+
+def _err_text(e):
+    msg = re.sub(r'\x1b\[[0-9;]*m', '', str(e)).replace('ERROR:', '').strip()
+    if isinstance(e, RuntimeError) and msg:
+        return msg[:300]
+    return (f"{type(e).__name__}: {msg}" if msg else type(e).__name__)[:300]
+
+
 @decorators.on_start()
 async def setup():
     await engine.create_config(key='fast_bots', description='Сначала искать трек у музыкальных инлайн-ботов Telegram '
                                '(секунды вместо скачивания)', data_type='bool', default=True)
     await engine.create_config(key='bots', description='Музыкальные инлайн-боты для быстрого пути (по порядку)',
-                               data_type='list', default=['lybot'])
+                               data_type='list', default=['lybot', 'deezermusicbot'])
+    try:                                                    # старый список по умолчанию → добавить второго бота (один раз)
+        if not await engine.db.get('musics:bots_v2') and (await engine.get_config('bots')) == ['lybot']:
+            await engine.edit_config('bots', 'add', 'deezermusicbot')
+        await engine.db.set('musics:bots_v2', True)
+    except Exception as e:
+        _log_exc('миграция bots', e)
     await engine.create_config(key='format', description='Формат при скачивании: m4a — без перекодирования (быстрее), '
                                'mp3 — перекодирование (дольше, совместимее)', data_type='choice', default='m4a',
                                options=['m4a', 'mp3'])
@@ -108,10 +132,12 @@ async def yt_candidates(q, n=5):
         with y.YoutubeDL({**_js(), 'quiet': True, 'no_warnings': True, 'extract_flat': True}) as ydl:
             return ydl.extract_info(query, download=False).get('entries') or []
     loop = asyncio.get_running_loop()
-    got = await asyncio.gather(*(loop.run_in_executor(None, run, x) for x in (f"ytsearch{n}:{q}", f"scsearch3:{q}")),
-                               return_exceptions=True)
+    kinds = [('SoundCloud', f"scsearch4:{q}")]
+    if time.monotonic() >= _yt_blocked['until']:           # YouTube не требует вход — ищем и там
+        kinds.insert(0, ('YouTube', f"ytsearch{n}:{q}"))
+    got = await asyncio.gather(*(loop.run_in_executor(None, run, x) for _k, x in kinds), return_exceptions=True)
     out = []
-    for kind, entries in zip(('YouTube', 'SoundCloud'), got):
+    for (kind, _q), entries in zip(kinds, got):
         if isinstance(entries, Exception):
             continue
         for e in entries:
@@ -163,8 +189,14 @@ async def smart_search(q, n=8):
                     out.append(t)
         except Exception:
             pass
-    # точные совпадения — наверх
-    out.sort(key=lambda t: 0 if words and words <= set(_norm(f"{t['artist']} {t['title']}").split()) else 1)
+    def rank(t):
+        name = set(_norm(f"{t['artist']} {t['title']}").split())
+        exact = bool(words) and words <= name
+        d = t.get('duration') or 0
+        odd = bool(d) and not 60 <= d <= 480              # 10-минутные «EP / премьеры / сборники» — ниже песен
+        extra = len(name - words)                         # «… (Официальная премьера EP)» — ниже чистого названия
+        return (not exact, odd, bool(t.get('from')), extra if exact else 0)
+    out.sort(key=rank)                                    # точные совпадения → песни обычной длины → каталог Deezer
     return out[:max(n, 10)]
 
 
@@ -274,23 +306,23 @@ def ffmpeg_path():
         return None
 
 
-async def find_source(track):
-    """Полная версия трека: ищем на YouTube и SoundCloud, берём ту, что ближе по длительности и названию."""
+async def find_sources(track, exclude=()):
+    """Полная версия трека: YouTube и SoundCloud → ссылки по убыванию похожести (длительность, название)."""
     y = await ytdlp()
-    q = f"{track['artist']} - {track['title']}"
+    q = f"{track['artist']} - {track['title']}".strip(' -')
 
     def run(query):
         with y.YoutubeDL({**_js(), 'quiet': True, 'no_warnings': True, 'extract_flat': True}) as ydl:
             return ydl.extract_info(query, download=False).get('entries') or []
     loop = asyncio.get_running_loop()
     cands = []
-    got = await asyncio.gather(*(loop.run_in_executor(None, run, x) for x in (f"ytsearch5:{q}", f"scsearch3:{q}")),
-                               return_exceptions=True)
+    queries = [f"scsearch4:{q}"] + ([f"ytsearch5:{q}"] if time.monotonic() >= _yt_blocked['until'] else [])
+    got = await asyncio.gather(*(loop.run_in_executor(None, run, x) for x in queries), return_exceptions=True)
     for res in got:
-        if not isinstance(res, Exception):
+        if isinstance(res, Exception):
+            print(f"[musics] поиск источника «{q}»: {_err_text(res)}")
+        else:
             cands += res
-    if not cands:
-        raise RuntimeError("трек не нашёлся в открытых источниках")
     want = track.get('duration') or 0
     words = set(re.findall(r'\w+', q.lower()))
 
@@ -305,44 +337,65 @@ async def find_source(track):
                 s -= 6
         if 'official' in t or 'topic' in (e.get('channel') or '').lower():
             s += 2
+        if d and (d < 40 or d > 1200):
+            s -= 20
         return s
-    best = max(cands, key=score)
-    return best.get('url') or best.get('webpage_url') or f"https://www.youtube.com/watch?v={best.get('id')}"
+    out = []
+    for e in sorted(cands, key=score, reverse=True):
+        url = e.get('url') or e.get('webpage_url') or (f"https://www.youtube.com/watch?v={e.get('id')}" if e.get('id') else '')
+        if url and url not in out and url not in exclude:
+            out.append(url)
+    print(f"[musics] источники «{q}»: {len(out)} (из {len(cands)})")
+    return out
 
 
 async def via_bots(track):
-    """Быстрый путь: трек у музыкального инлайн-бота (файл уже в Telegram) → Document | None."""
+    """Быстрый путь: трек у музыкального инлайн-бота (файл уже в Telegram) → ('doc', Document) | None.
+    Боты ищут по-разному: на «исполнитель трек» @lybot часто отдаёт просто популярное у исполнителя, поэтому
+    пробуем несколько формулировок и проверяем каждый результат по словам и длительности."""
     if not await engine.get_config('fast_bots'):
         return None
     from telethon.tl.types import DocumentAttributeAudio
-    q = f"{track['artist']} {track['title']}".strip()
+    artist, title = (track.get('artist') or '').strip(), (track.get('title') or '').strip()
+    clean_title = re.sub(r'\s*[(\[][^)\]]*[)\]]', '', title).strip() or title
+    queries = list(dict.fromkeys(x for x in (f"{artist} {title}".strip(), f"{clean_title} {artist}".strip(), clean_title) if x))
     want = track.get('duration') or 0
-    words = set(_norm(q).split())
-    for b in await engine.get_config('bots') or []:
-        b = str(b).strip().lstrip('@')
-        if not b:
-            continue
-        try:
-            results = await asyncio.wait_for(engine.client.inline_query(b, q), 10)
-        except Exception:
-            continue
-        best, best_score = None, -1e9
-        for r in list(results)[:15]:
-            doc = r.document
-            if doc is None:
-                continue
-            a = next((x for x in doc.attributes if isinstance(x, DocumentAttributeAudio)), None)
-            if a is None or a.voice:
-                continue
-            got = set(_norm(f"{a.performer or ''} {a.title or ''} {r.title or ''} {r.description or ''}").split())
-            sc = len(words & got) * 3 - (len(words - got) * 4)
-            if want and a.duration:
-                sc -= min(abs(a.duration - want), 120) / 5
-            if sc > best_score:
-                best, best_score = doc, sc
-        if best is not None and best_score >= -4:
-            return best
-    return None
+    words = set(_norm(f"{artist} {clean_title}").split())
+    async def one_bot(b):
+        best, best_score, seen = None, -1e9, []
+        for q in queries:
+            t1 = time.monotonic()
+            try:
+                results = await asyncio.wait_for(engine.client.inline_query(b, q), 6)
+            except Exception as e:
+                print(f"[musics] @{b}: запрос «{q}» не прошёл — {_err_text(e)}")
+                break                                        # бот недоступен — к следующему боту
+            for r in list(results)[:50]:
+                doc = r.document
+                if doc is None:   # «статья» без файла (у @lybot — ещё не скачанный трек, его бот отдаёт только через /proxy)
+                    continue
+                a = next((x for x in doc.attributes if isinstance(x, DocumentAttributeAudio)), None)
+                if a is None or a.voice:
+                    continue
+                got = set(_norm(f"{a.performer or ''} {a.title or ''} {r.title or ''} {r.description or ''}").split())
+                sc = len(words & got) * 3 - (len(words - got) * 4)
+                if want and a.duration:
+                    sc -= min(abs(a.duration - want), 120) / 5
+                seen.append((sc, f"{a.performer} — {a.title} ({a.duration} с)"))
+                if sc > best_score:
+                    best, best_score = ('doc', doc), sc
+            top = '; '.join(f"{x[1]} [{x[0]:.0f}]" for x in sorted(seen, reverse=True)[:2])
+            print(f"[musics] @{b}: «{q}» ({want} с) — результатов {len(results)}, лучший {best_score:.1f}, "
+                  f"{time.monotonic() - t1:.1f} с · {top}")
+            if best is not None and best_score >= -4:
+                return best
+            if not results:                                  # пусто — у этого бота трека нет, другие формулировки не спасут
+                break
+        return None
+
+    bots = [x for x in (str(b).strip().lstrip('@') for b in (await engine.get_config('bots') or [])) if x]
+    got = await asyncio.gather(*(one_bot(b) for b in bots), return_exceptions=True)   # все боты разом
+    return next((g for g in got if g and not isinstance(g, Exception)), None)         # первый по порядку в настройке
 
 
 async def download_mp3(src_url, track, on_progress=None):
@@ -427,40 +480,118 @@ def _mb(n):
     return f"{n / 1048576:.1f} МБ"
 
 
+_yt_blocked = {'until': 0.0, 'upgraded': False}
+BOT_CHECK_RE = re.compile(r"not a bot|Sign in to confirm|HTTP Error 429|cookies", re.I)
+
+
+async def _upgrade_ytdlp():
+    """YouTube меняется часто — свежий yt-dlp чинит большинство «внезапно перестало качать». Один раз за запуск."""
+    if _yt_blocked['upgraded']:
+        return
+    _yt_blocked['upgraded'] = True
+    proc = await asyncio.create_subprocess_exec(sys.executable, '-m', 'pip', 'install', '-U', '--pre', 'yt-dlp[default,deno]',
+                                                '--disable-pip-version-check', stdout=asyncio.subprocess.PIPE,
+                                                stderr=asyncio.subprocess.STDOUT)
+    out, _ = await proc.communicate()
+    print(f"[musics] обновление yt-dlp: код {proc.returncode} · " + out.decode('utf-8', 'replace').strip().splitlines()[-1][:200]
+          if out else f"[musics] обновление yt-dlp: код {proc.returncode}")
+
+
+def _is_yt(url):
+    return any(h in (urllib.parse.urlparse(url).hostname or '') for h in ('youtube.', 'youtu.be'))
+
+
+async def _send_doc(chat_id, found, reply_to):
+    kind, obj = found
+    try:
+        msg = await engine.client.send_file(chat_id, obj, reply_to=reply_to)
+        print(f"[musics] отправлен файл бота → чат {chat_id}, сообщение {getattr(msg, 'id', None)}")
+        return msg
+    except Exception as e:                                  # файл бота протух/недоступен — качаем сами
+        _log_exc('отправка файла бота', e)
+        return None
+
+
 async def send_track(chat_id, track, show, reply_to=None):
+    """Трек в чат. Порядок: музыкальные инлайн-боты (секунды) → источник из поиска → другие источники
+    YouTube/SoundCloud по очереди. YouTube просит «докажи, что не бот» — пропускаем его и берём SoundCloud."""
     from telethon.tl.types import DocumentAttributeAudio
     t0 = time.monotonic()
-    if not track.get('source'):
+    if track.get('title'):                                  # быстрый путь — и для находок YouTube/SoundCloud тоже
         await show(visual.wait("Ищу трек…"))
         try:
             doc = await via_bots(track)
-        except Exception:
+        except Exception as e:
+            _log_exc('инлайн-боты', e)
             doc = None
-        if doc is not None:
-            msg = await engine.client.send_file(chat_id, doc, reply_to=reply_to)
+        msg = await _send_doc(chat_id, doc, reply_to) if doc is not None else None
+        if msg is not None:
             await show(visual.ok("Готово") + f"  {_esc(track['artist'])} — {_esc(track['title'])}  "
                        + visual.hint(f"{time.monotonic() - t0:.1f} с"))
             return msg
-        await show(visual.wait("Ищу полную версию…"))
-        src = await find_source(track)
-    else:
-        src = track['source']
 
     async def prog(pct, done=0, total=0, speed=0):
         extra = f"{_mb(done)} / {_mb(total)}" if total else _mb(done)
         if speed:
             extra += f" · {speed / 1048576:.1f} МБ/с"
         await show(visual.wait("Скачиваю…") + f"\n<code>{engine.progress_bar(pct, 12, 'bar')}</code> {pct:.0f}%  {extra}")
-    path, cover, tmp = await download_mp3(src, track, prog)
+
+    tried, errors, searched = [], [], False
+    queue = [track['source']] if track.get('source') else []
+    result = None
+    for _round in range(6):
+        if not queue:
+            if searched or not track.get('title'):
+                break
+            searched = True
+            await show(visual.wait("Ищу полную версию…"))
+            queue = await find_sources(track, exclude=tried)
+            if not queue:
+                break
+        src = queue.pop(0)
+        if _is_yt(src) and time.monotonic() < _yt_blocked['until']:
+            continue                                        # YouTube сейчас требует вход — сразу к SoundCloud
+        tried.append(src)
+        t1 = time.monotonic()
+        try:
+            result = await download_mp3(src, track, prog)
+            print(f"[musics] скачано {_mb(os.path.getsize(result[0]))} за {time.monotonic() - t1:.0f} с · {src}")
+            break
+        except Exception as e:
+            errors.append(e)
+            _log_exc(f'скачивание {src}', e)
+            if _is_yt(src) and BOT_CHECK_RE.search(str(e)):
+                _yt_blocked['until'] = time.monotonic() + 1800
+                asyncio.ensure_future(_upgrade_ytdlp())
+                await show(visual.wait("YouTube не отдаёт трек — пробую SoundCloud…"))
+                queue = [u for u in queue if not _is_yt(u)]
+    if result is None:
+        last = errors[-1] if errors else None
+        if any(BOT_CHECK_RE.search(str(x)) for x in errors) or (not errors and time.monotonic() < _yt_blocked['until']):
+            raise RuntimeError("YouTube требует вход («подтвердите, что вы не бот») — так бывает с IP VPN/хостинга; "
+                               "SoundCloud и инлайн-боты трек не нашли. Попробуйте позже, без VPN, или другую версию из списка")
+        if last is not None:
+            raise RuntimeError(re.sub(r'\x1b\[[0-9;]*m', '', str(last)).replace('ERROR:', '').strip()[:250])
+        raise RuntimeError("трек не нашёлся ни у ботов, ни в открытых источниках")
+    path, cover, tmp = result
     try:
-        await show(visual.wait(f"Отправляю · {_mb(os.path.getsize(path))}…"))
+        size = os.path.getsize(path)
+        await show(visual.wait(f"Отправляю · {_mb(size)}…"))
+        up = {'t': time.monotonic()}
+
+        async def uprog(done, total):
+            if time.monotonic() - up['t'] > 2:
+                up['t'] = time.monotonic()
+                pct = done / total * 100 if total else 0
+                await show(visual.wait("Отправляю…") + f"\n<code>{engine.progress_bar(pct, 12, 'bar')}</code> {pct:.0f}%  {_mb(done)} / {_mb(total)}")
         name = f"{track['artist']} - {track['title']}".strip(' -')
         safe = re.sub(r'[\\/:*?"<>|]+', '', name)[:120] + os.path.splitext(path)[1]
         final = os.path.join(tmp, safe)
         os.replace(path, final)
         msg = await engine.client.send_file(
-            chat_id, final, reply_to=reply_to, thumb=cover,
+            chat_id, final, reply_to=reply_to, thumb=cover, progress_callback=uprog,
             attributes=[DocumentAttributeAudio(duration=int(track.get('duration') or 0), title=track['title'][:64], performer=track['artist'][:64])])
+        print(f"[musics] скачано: {name} → чат {chat_id}, сообщение {getattr(msg, 'id', None)}, {time.monotonic() - t0:.0f} с")
         await show(visual.ok("Готово") + f"  {_esc(name)}  " + visual.hint(f"{time.monotonic() - t0:.0f} с"))
         return msg
     finally:
@@ -595,13 +726,19 @@ async def music_cmd(event):
                     await form.edit(card(t, text), buttons=None)
                 except Exception:
                     pass
+            ok = False
             try:
                 await send_track(chat_id, t, fshow)
+                ok = True
             except Exception as e:
-                await fshow(visual.err("Не получилось") + f"\n<code>{_esc(str(e)[:300])}</code>")
+                _log_exc('скачивание', e)
+                err = visual.err("Не получилось") + f"\n<code>{_esc(_err_text(e))}</code>"
             finally:
                 busy['on'] = False
-            await form.edit(card(t, visual.ok("Отправлено")), buttons=card_buttons(i))
+            try:
+                await form.edit(card(t, visual.ok("Отправлено") if ok else err), buttons=card_buttons(i))
+            except Exception:
+                pass
 
 
 @decorators.command('lyrics', 'lyr')
